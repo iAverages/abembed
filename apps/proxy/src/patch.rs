@@ -6,10 +6,6 @@
 
 use std::ops::Range;
 
-/// Samples an HE-AAC frame decodes to at the output rate.
-// ponytail: assumes HE-AAC; an AAC-LC file just fails the ratio check and passes through untouched.
-const AAC_FRAME: u64 = 2048;
-
 pub enum Moov {
     Found(Range<usize>),
     /// The moov box runs past the buffer; at least this many bytes from the start are needed.
@@ -60,7 +56,8 @@ pub fn patch(moov: &mut [u8]) -> Result<bool, String> {
     let mdhd = find(moov, audio, &[b"mdia", b"mdhd"])?;
     let stsz = find(moov, audio, &[b"mdia", b"minf", b"stbl", b"stsz"])?;
     let samples = u64::from(be_u32(moov, stsz.payload + 8));
-    let real = samples * AAC_FRAME;
+    let frame = aac_frame_len(moov, audio, &mdhd)?;
+    let real = samples * frame;
     let ratio = mdhd_duration(moov, &mdhd) as f64 / real as f64;
     let factor = ratio.round();
     if factor < 2.0 || (ratio - factor).abs() > 0.1 {
@@ -91,13 +88,96 @@ pub fn patch(moov: &mut [u8]) -> Result<bool, String> {
     }
 
     let stts = find(moov, audio, &[b"mdia", b"minf", b"stbl", b"stts"])?;
-    rewrite_stts(moov, &stts, samples as u32)?;
+    rewrite_stts(moov, &stts, samples as u32, frame as u32)?;
     Ok(true)
+}
+
+/// Samples per AAC frame in the audio track's timescale. A frame is 1024 samples at the
+/// codec's core rate, so it's 2048 when the timescale is the doubled HE-AAC (SBR) output rate.
+fn aac_frame_len(moov: &[u8], audio: &Bx, mdhd: &Bx) -> Result<u64, String> {
+    let timescale = be_u32(
+        moov,
+        mdhd.payload + if moov[mdhd.payload] == 1 { 20 } else { 12 },
+    );
+    let stsd = find(moov, audio, &[b"mdia", b"minf", b"stbl", b"stsd"])?;
+    let entry = read_box(moov, stsd.payload + 8, stsd.end)?;
+    if &entry.typ != b"mp4a" {
+        return Err(format!(
+            "audio is {}, not mp4a",
+            String::from_utf8_lossy(&entry.typ)
+        ));
+    }
+    if moov[entry.payload + 8..entry.payload + 10] != [0, 0] {
+        return Err("unsupported mp4a sample entry version".into());
+    }
+    // A version 0 sound sample entry has 28 bytes of fields before its child boxes.
+    let entry = Bx {
+        payload: entry.payload + 28,
+        ..entry
+    };
+    let esds = find(moov, &entry, &[b"esds"])?;
+    let core = core_sample_rate(&moov[esds.payload + 4..esds.end])
+        .ok_or("unreadable AAC config in esds")?;
+    match timescale {
+        t if t == core => Ok(1024),
+        t if t == core * 2 => Ok(2048),
+        t => Err(format!(
+            "audio timescale {t} doesn't match AAC core rate {core}"
+        )),
+    }
+}
+
+/// Reads the core sample rate from the AudioSpecificConfig in an esds's ES_Descriptor.
+fn core_sample_rate(d: &[u8]) -> Option<u32> {
+    const RATES: [u32; 13] = [
+        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
+    ];
+    let mut p = descriptor(d, 0, 0x03)?;
+    let flags = *d.get(p + 2)?;
+    p += 3;
+    if flags & 0x80 != 0 {
+        p += 2;
+    }
+    if flags & 0x40 != 0 {
+        p += 1 + usize::from(*d.get(p)?);
+    }
+    if flags & 0x20 != 0 {
+        p += 2;
+    }
+    p = descriptor(d, p, 0x04)? + 13;
+    p = descriptor(d, p, 0x05)?;
+
+    let src = d.get(p..)?;
+    let mut bits = [0; 8];
+    bits[..src.len().min(8)].copy_from_slice(&src[..src.len().min(8)]);
+    let bits = u64::from_be_bytes(bits);
+    if bits >> 59 == 31 {
+        return None;
+    }
+    match (bits >> 55) & 0xf {
+        15 => Some(((bits >> 31) & 0xff_ffff) as u32),
+        i => RATES.get(i as usize).copied(),
+    }
+}
+
+/// Checks the descriptor at `p` has `tag` and returns where its payload starts.
+fn descriptor(d: &[u8], mut p: usize, tag: u8) -> Option<usize> {
+    if *d.get(p)? != tag {
+        return None;
+    }
+    p += 1;
+    for _ in 0..4 {
+        p += 1;
+        if *d.get(p - 1)? & 0x80 == 0 {
+            break;
+        }
+    }
+    Some(p)
 }
 
 /// Replaces the audio stts with a single run of fixed-length frames, filling the
 /// bytes it no longer needs with a `free` box so nothing after it moves.
-fn rewrite_stts(buf: &mut [u8], stts: &Bx, samples: u32) -> Result<(), String> {
+fn rewrite_stts(buf: &mut [u8], stts: &Bx, samples: u32, frame: u32) -> Result<(), String> {
     const LEN: usize = 24;
     let spare = (stts.end - stts.start)
         .checked_sub(LEN)
@@ -113,7 +193,7 @@ fn rewrite_stts(buf: &mut [u8], stts: &Bx, samples: u32) -> Result<(), String> {
     set_u32(buf, s + 8, 0);
     set_u32(buf, s + 12, 1);
     set_u32(buf, s + 16, samples);
-    set_u32(buf, s + 20, AAC_FRAME as u32);
+    set_u32(buf, s + 20, frame);
     if spare != 0 {
         set_u32(buf, s + LEN, spare as u32);
         buf[s + LEN + 4..s + LEN + 8].copy_from_slice(b"free");
@@ -252,4 +332,41 @@ fn set_u32(buf: &mut [u8], off: usize, v: u32) {
 
 fn set_u64(buf: &mut [u8], off: usize, v: u64) {
     buf[off..off + 8].copy_from_slice(&v.to_be_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::core_sample_rate;
+
+    const ESDS_LC_44100: [u8; 27] = [
+        0x03, 0x19, 0x00, 0x01, 0x00, 0x04, 0x11, 0x40, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x02, 0x12, 0x10, 0x06, 0x01, 0x02,
+    ];
+
+    #[test]
+    fn reads_core_rate_from_lc_config() {
+        assert_eq!(core_sample_rate(&ESDS_LC_44100), Some(44100));
+    }
+
+    #[test]
+    fn reads_core_rate_from_implicit_sbr_config() {
+        let mut esds = ESDS_LC_44100;
+        esds[22..24].copy_from_slice(&[0x13, 0x90]);
+        assert_eq!(core_sample_rate(&esds), Some(22050));
+    }
+
+    #[test]
+    fn reads_core_rate_from_multibyte_lengths() {
+        let mut esds = vec![
+            0x03, 0x80, 0x80, 0x80, 0x22, 0x00, 0x01, 0x00, 0x04, 0x80, 0x80, 0x80, 0x14,
+        ];
+        esds.extend_from_slice(&ESDS_LC_44100[7..20]);
+        esds.extend_from_slice(&[0x05, 0x80, 0x80, 0x80, 0x02, 0x11, 0x90]);
+        assert_eq!(core_sample_rate(&esds), Some(48000));
+    }
+
+    #[test]
+    fn rejects_truncated_config() {
+        assert_eq!(core_sample_rate(&ESDS_LC_44100[..10]), None);
+    }
 }
