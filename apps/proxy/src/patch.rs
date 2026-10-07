@@ -79,7 +79,7 @@ pub fn patch(moov: &mut [u8]) -> Result<bool, String> {
             set_mdhd_duration(moov, &mdhd, real);
         } else {
             // Scaling up the timescale shrinks every video timestamp without touching stts/ctts.
-            let ts = mdhd.payload + if moov[mdhd.payload] == 1 { 20 } else { 12 };
+            let ts = timescale_off(moov, &mdhd);
             let scaled = be_u32(moov, ts)
                 .checked_mul(factor)
                 .ok_or("video timescale overflows")?;
@@ -95,18 +95,9 @@ pub fn patch(moov: &mut [u8]) -> Result<bool, String> {
 /// Samples per AAC frame in the audio track's timescale. A frame is 1024 samples at the
 /// codec's core rate, so it's 2048 when the timescale is the doubled HE-AAC (SBR) output rate.
 fn aac_frame_len(moov: &[u8], audio: &Bx, mdhd: &Bx) -> Result<u64, String> {
-    let timescale = be_u32(
-        moov,
-        mdhd.payload + if moov[mdhd.payload] == 1 { 20 } else { 12 },
-    );
+    let timescale = be_u32(moov, timescale_off(moov, mdhd));
     let stsd = find(moov, audio, &[b"mdia", b"minf", b"stbl", b"stsd"])?;
     let entry = read_box(moov, stsd.payload + 8, stsd.end)?;
-    if &entry.typ != b"mp4a" {
-        return Err(format!(
-            "audio is {}, not mp4a",
-            String::from_utf8_lossy(&entry.typ)
-        ));
-    }
     if moov[entry.payload + 8..entry.payload + 10] != [0, 0] {
         return Err("unsupported mp4a sample entry version".into());
     }
@@ -125,6 +116,10 @@ fn aac_frame_len(moov: &[u8], audio: &Bx, mdhd: &Bx) -> Result<u64, String> {
             "audio timescale {t} doesn't match AAC core rate {core}"
         )),
     }
+}
+
+fn timescale_off(moov: &[u8], mdhd: &Bx) -> usize {
+    mdhd.payload + if moov[mdhd.payload] == 1 { 20 } else { 12 }
 }
 
 /// Reads the core sample rate from the AudioSpecificConfig in an esds's ES_Descriptor.
