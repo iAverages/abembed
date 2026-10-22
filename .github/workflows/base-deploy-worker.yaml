@@ -1,0 +1,53 @@
+name: Deploy Worker
+on:
+  workflow_call:
+    inputs:
+      app:
+        required: true
+        type: string
+      wrangler_envs:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      # D1 binding whose migrations are applied before each deploy.
+      d1_binding:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+jobs:
+  deploy:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: Mic92/niks3-action@v1
+        continue-on-error: true
+        with:
+          server-url: https://niks3.kirsi.dev
+          skip-push: ${{ github.ref != 'refs/heads/main' }}
+      - name: Deploy
+        shell: bash
+        working-directory: apps/${{ inputs.app }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_ENVS: ${{ inputs.wrangler_envs }}
+          D1_BINDING: ${{ inputs.d1_binding }}
+        run: |
+          set -euo pipefail
+
+          for wrangler_env in $WRANGLER_ENVS; do
+            if [ -n "$D1_BINDING" ]; then
+              nix develop ../.. -c wrangler d1 migrations apply "$D1_BINDING" --remote --env "$wrangler_env"
+            fi
+            nix develop ../.. -c wrangler deploy --env "$wrangler_env"
+          done

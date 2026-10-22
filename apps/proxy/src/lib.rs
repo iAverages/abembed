@@ -1,4 +1,6 @@
+mod merge;
 mod patch;
+mod remux;
 
 use worker::{
     Context, Env, Fetch, Headers, Request, RequestInit, RequestRedirect, Response, ResponseBody,
@@ -15,16 +17,18 @@ type Error = (u16, String);
 
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, ctx: Context) -> worker::Result<Response> {
-    if req.path() != "/video" {
-        return Response::error("not found", 404);
-    }
     let allowed_hosts: Vec<String> = env
         .var("ALLOWED_HOSTS")?
         .to_string()
         .split(',')
         .map(str::to_owned)
         .collect();
-    match video(&req, &allowed_hosts, &ctx).await {
+    let res = match req.path().as_str() {
+        "/video" => video(&req, &allowed_hosts, &ctx).await,
+        "/merge" => merge::merge(&req, &allowed_hosts, &ctx).await,
+        _ => return Response::error("not found", 404),
+    };
+    match res {
         Ok(res) => Ok(res),
         Err((status, msg)) => Response::error(msg, status),
     }

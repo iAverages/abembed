@@ -1,0 +1,11 @@
+[package]
+name = "provider"
+version = "0.1.0"
+edition = "2021"
+authors = ["iAverages <me@danielraybone.com>"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0.8"

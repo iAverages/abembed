@@ -1,0 +1,8 @@
+{
+  "name": "@abembed/abembed",
+  "private": true,
+  "scripts": {
+    "deploy": "pnpm dlx wrangler@4 d1 migrations apply ACCOUNTS --remote --env production && pnpm dlx wrangler@4 deploy --env production",
+    "deploy:staging": "pnpm dlx wrangler@4 d1 migrations apply ACCOUNTS --remote --env staging && pnpm dlx wrangler@4 deploy --env staging"
+  }
+}

@@ -10,3 +10,5 @@ crate-type = ["cdylib"]
 [dependencies]
 web-sys = { version = "0.3", features = ["WritableStreamDefaultWriter"] }
 worker = "0.8"
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+mp4-atom = "0.16"

@@ -5,6 +5,6 @@
     "dev": "pnpm dlx wrangler@4 dev",
     "build": "worker-build --release",
     "check": "cargo check --target wasm32-unknown-unknown",
-    "deploy": "pnpm dlx wrangler@4 deploy"
+    "deploy": "pnpm dlx wrangler@4 deploy --env production"
   }
 }

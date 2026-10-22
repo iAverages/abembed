@@ -1,0 +1,142 @@
+name = "abembed"
+main = "build/index.js"
+compatibility_date = "2026-09-13"
+
+[build]
+command = "worker-build --release --panic-unwind"
+
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true
+
+[[kv_namespaces]]
+binding = "POST_CACHE"
+id = "ff4b48bacddc418b9036cc1a18cbaa98"
+
+[[d1_databases]]
+binding = "ACCOUNTS"
+database_name = "abembed-accounts"
+database_id = "1c05b7ee-6897-428f-bda2-7a3889f95717"
+
+[[ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "ADMIN_LIMITER"
+namespace_id = "1003"
+simple = { limit = 3, period = 60 }
+
+[[services]]
+binding = "PROVIDER_A"
+service = "abembed-provider-a"
+
+[[services]]
+binding = "PROVIDER_B"
+service = "abembed-provider-b"
+
+[[services]]
+binding = "PROVIDER_C"
+service = "abembed-provider-c"
+
+[[services]]
+binding = "PROVIDER_D"
+service = "abembed-provider-d"
+
+# routes live here rather than top level so `wrangler dev` keeps the real request host
+[env.production]
+name = "abembed"
+routes = [
+  { pattern = "abinstagram.com", custom_domain = true },
+  { pattern = "www.abinstagram.com", custom_domain = true },
+
+  { pattern = "abtiktok.com", custom_domain = true },
+  { pattern = "vt.abtiktok.com", custom_domain = true },
+  { pattern = "vm.abtiktok.com", custom_domain = true },
+
+  { pattern = "abfacebook.com", custom_domain = true },
+  { pattern = "www.abfacebook.com", custom_domain = true },
+
+  { pattern = "abembed.com", custom_domain = true },
+  { pattern = "www.abembed.com", custom_domain = true },
+]
+
+[[env.production.kv_namespaces]]
+binding = "POST_CACHE"
+id = "ff4b48bacddc418b9036cc1a18cbaa98"
+
+[[env.production.d1_databases]]
+binding = "ACCOUNTS"
+database_name = "abembed-accounts"
+database_id = "1c05b7ee-6897-428f-bda2-7a3889f95717"
+
+[[env.production.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[[env.production.ratelimits]]
+name = "ADMIN_LIMITER"
+namespace_id = "1003"
+simple = { limit = 3, period = 60 }
+
+[[env.production.services]]
+binding = "PROVIDER_A"
+service = "abembed-provider-a"
+
+[[env.production.services]]
+binding = "PROVIDER_B"
+service = "abembed-provider-b"
+
+[[env.production.services]]
+binding = "PROVIDER_C"
+service = "abembed-provider-c"
+
+[[env.production.services]]
+binding = "PROVIDER_D"
+service = "abembed-provider-d"
+
+[env.staging]
+routes = [
+  { pattern = "staging.abinstagram.com", custom_domain = true },
+  { pattern = "staging.abfacebook.com", custom_domain = true },
+  { pattern = "staging.abembed.com", custom_domain = true },
+]
+
+[[env.staging.kv_namespaces]]
+binding = "POST_CACHE"
+id = "edbc21046a154c07b9b85e180e2629b4"
+
+[[env.staging.d1_databases]]
+binding = "ACCOUNTS"
+database_name = "abembed-staging-accounts"
+database_id = "09091008-ed93-4216-8bbc-33fa598522fa"
+
+[[env.staging.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "ADMIN_LIMITER"
+namespace_id = "1004"
+simple = { limit = 3, period = 60 }
+
+[[env.staging.services]]
+binding = "PROVIDER_A"
+service = "abembed-provider-a"
+
+[[env.staging.services]]
+binding = "PROVIDER_B"
+service = "abembed-provider-b"
+
+[[env.staging.services]]
+binding = "PROVIDER_C"
+service = "abembed-provider-c"
+
+[[env.staging.services]]
+binding = "PROVIDER_D"
+service = "abembed-provider-d"

@@ -1,0 +1,23 @@
+name = "abembed-provider"
+main = "build/index.js"
+compatibility_date = "2026-09-13"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release --panic-unwind"
+
+[observability]
+enabled = true
+
+[env.a.placement]
+region = "aws:us-east-1"
+
+[env.b.placement]
+region = "aws:eu-west-1"
+
+[env.c.placement]
+region = "aws:ap-southeast-1"
+
+[env.d.placement]
+region = "aws:ap-southeast-2"

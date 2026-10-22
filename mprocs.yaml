@@ -1,16 +1,27 @@
 procs:
-  api:
-    cwd: "apps/api"
-    shell: "cargo run"
-  gif-service:
-    cwd: "apps/gif-service"
-    shell: "cargo run"
-  embed-image-service:
-    cwd: "apps/embed-image-service"
-    shell: "pnpm run dev"
-  embed-image:
-    cwd: "packages/embed-image"
-    shell: "pnpm run dev"
+  abembed:
+    cwd: "apps/abembed"
+    shell: "pnpm dlx wrangler@4 dev"
+  provider:
+    cwd: "apps/provider"
+    shell: "pnpm dlx wrangler@4 dev --env a --port 8788"
   proxy:
     cwd: "apps/proxy"
     shell: "pnpm run dev"
+    autostart: false
+  api:
+    cwd: "apps/api"
+    shell: "cargo run"
+    autostart: false
+  gif-service:
+    cwd: "apps/gif-service"
+    shell: "cargo run"
+    autostart: false
+  embed-image-service:
+    cwd: "apps/embed-image-service"
+    shell: "pnpm run dev"
+    autostart: false
+  embed-image:
+    cwd: "packages/embed-image"
+    shell: "pnpm run dev"
+    autostart: false

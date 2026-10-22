@@ -24,6 +24,8 @@ importers:
         specifier: 2.9.8
         version: 2.9.8
 
+  apps/abembed: {}
+
   apps/api: {}
 
   apps/embed-image-service:
@@ -64,6 +66,10 @@ importers:
         version: 6.0.3
 
   apps/gif-service: {}
+
+  apps/provider: {}
+
+  apps/proxy: {}
 
   packages/config/tsconfig: {}
 

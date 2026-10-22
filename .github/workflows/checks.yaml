@@ -13,4 +13,5 @@ jobs:
         continue-on-error: true
         with:
           server-url: https://niks3.kirsi.dev
+          skip-push: ${{ github.ref != 'refs/heads/main' }}
       - run: nix flake check

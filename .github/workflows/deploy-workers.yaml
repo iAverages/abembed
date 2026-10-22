@@ -1,0 +1,69 @@
+name: Deploy Workers
+on:
+  push:
+    branches: ["main", "staging"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-workers-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      abembed: ${{ steps.filter.outputs.abembed }}
+      provider: ${{ steps.filter.outputs.provider }}
+      proxy: ${{ steps.filter.outputs.proxy }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workspace: &workspace
+              - Cargo.toml
+              - Cargo.lock
+            abembed:
+              - *workspace
+              - apps/abembed/**
+            provider:
+              - *workspace
+              - apps/provider/**
+            proxy:
+              - *workspace
+              - apps/proxy/**
+
+  provider:
+    needs: changes
+    if: github.ref_name == 'main' && needs.changes.outputs.provider == 'true'
+    uses: ./.github/workflows/base-deploy-worker.yaml
+    with:
+      app: provider
+      wrangler_envs: a b c d
+      environment: production
+    secrets: inherit
+
+  abembed:
+    needs: [changes, provider]
+    if: ${{ !cancelled() && needs.changes.outputs.abembed == 'true' && needs.provider.result != 'failure' }}
+    uses: ./.github/workflows/base-deploy-worker.yaml
+    with:
+      app: abembed
+      wrangler_envs: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      d1_binding: ACCOUNTS
+    secrets: inherit
+
+  proxy:
+    needs: changes
+    if: github.ref_name == 'main' && needs.changes.outputs.proxy == 'true'
+    uses: ./.github/workflows/base-deploy-worker.yaml
+    with:
+      app: proxy
+      wrangler_envs: production
+      environment: production
+    secrets: inherit

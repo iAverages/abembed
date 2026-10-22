@@ -1,0 +1,7 @@
+{
+  "name": "@abembed/provider",
+  "private": true,
+  "scripts": {
+    "deploy": "for env in a b c d; do pnpm dlx wrangler@4 deploy --env $env || exit 1; done"
+  }
+}

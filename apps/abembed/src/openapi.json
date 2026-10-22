@@ -1,0 +1,508 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "abembed",
+        "description": "Embed proxy for Facebook, Instagram and TikTok posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, posts with more get a component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
+        "version": "1.0.0"
+    },
+    "servers": [{ "url": "https://staging.abembed.com" }],
+    "tags": [
+        { "name": "facebook" },
+        { "name": "instagram" },
+        { "name": "tiktok" }
+    ],
+    "paths": {
+        "/facebook/{path}": {
+            "get": {
+                "tags": ["facebook"],
+                "summary": "Embed, media or avatar for a Facebook post",
+                "description": "`path` is a facebook.com post path. Supported shapes:\n\n- `share/{code}`, `share/p/{code}`, `share/r/{code}`, `share/v/{code}`\n- `reel/{id}`\n- `watch?v={id}`, `video.php?v={id}`\n- `photo?fbid={id}`, `photo.php?fbid={id}`\n- `permalink.php?story_fbid={id}&id={id}`, `story.php?story_fbid={id}&id={id}`\n- `groups/{group}/posts/{id}`, `groups/{group}/permalink/{id}`\n- `{user}/posts/{id}`, `{user}/videos/{id}`, optionally with a slug before the id\n- `{user}/photos/{album}/{id}`\n\nAppend `/media/{index}` to redirect to one of the post's media, or `/avatar` to redirect to the author's avatar.",
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "required": true,
+                        "description": "facebook.com post path, may contain slashes",
+                        "schema": { "type": "string" },
+                        "example": "share/p/19ABswRkjM"
+                    }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/facebook/{path}": {
+            "get": {
+                "tags": ["facebook"],
+                "summary": "Facebook post json",
+                "description": "`path` takes the same shapes as `/facebook/{path}`.",
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "required": true,
+                        "description": "facebook.com post path, may contain slashes",
+                        "schema": { "type": "string" },
+                        "example": "share/p/19ABswRkjM"
+                    }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/facebook/{path}/media/{index}": {
+            "get": {
+                "tags": ["facebook"],
+                "summary": "Redirect to one of a Facebook post's media",
+                "description": "Old location of `/facebook/{path}/media/{index}`.",
+                "deprecated": true,
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "required": true,
+                        "description": "facebook.com post path, may contain slashes",
+                        "schema": { "type": "string" }
+                    },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram/{media_type}/{shortcode}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Embed for an Instagram post",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram/{username}/{media_type}/{shortcode}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Embed for an Instagram post linked through its author",
+                "parameters": [
+                    {
+                        "name": "username",
+                        "in": "path",
+                        "required": true,
+                        "description": "Ignored, the shortcode identifies the post",
+                        "schema": { "type": "string" }
+                    },
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram/{media_type}/{shortcode}/media/{index}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Redirect to one of an Instagram post's media",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram/{media_type}/{shortcode}/avatar": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Redirect to an Instagram post's author avatar",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/instagram/{media_type}/{shortcode}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Instagram post json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "403": {
+                        "description": "The post is gated, e.g. age restricted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/instagram/{media_type}/{shortcode}/media/{index}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Redirect to one of an Instagram post's media",
+                "description": "Old location of `/instagram/{media_type}/{shortcode}/media/{index}`.",
+                "deprecated": true,
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok/vm/{shortcode}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Embed for a vm.tiktok.com short link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok/t/{shortcode}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Embed for a tiktok.com/t short link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok/{username}/{post_type}/{id}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Embed for a TikTok post",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok/{username}/{post_type}/{id}/media/{index}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Redirect to one of a TikTok post's media",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok/{username}/{post_type}/{id}/avatar": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Redirect to a TikTok post's author avatar",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/tiktok/{shortcode}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "TikTok post json for a short link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/tiktok/{username}/{post_type}/{id}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "TikTok post json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/tiktok/{username}/{post_type}/{id}/media/{index}": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Redirect to one of a TikTok post's media",
+                "description": "Old location of `/tiktok/{username}/{post_type}/{id}/media/{index}`.",
+                "deprecated": true,
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        }
+    },
+    "components": {
+        "parameters": {
+            "Index": {
+                "name": "index",
+                "in": "path",
+                "required": true,
+                "description": "Zero based position in the post's media",
+                "schema": { "type": "integer", "minimum": 0 }
+            },
+            "InstagramMediaType": {
+                "name": "media_type",
+                "in": "path",
+                "required": true,
+                "schema": {
+                    "type": "string",
+                    "enum": ["p", "reel", "reels", "tv"]
+                }
+            },
+            "InstagramShortcode": {
+                "name": "shortcode",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string" },
+                "example": "DAbCdEfGhIj"
+            },
+            "TikTokShortcode": {
+                "name": "shortcode",
+                "in": "path",
+                "required": true,
+                "description": "Short link code",
+                "schema": { "type": "string" },
+                "example": "ZMabc1234"
+            },
+            "TikTokUsername": {
+                "name": "username",
+                "in": "path",
+                "required": true,
+                "description": "Author username, with or without the leading `@`",
+                "schema": { "type": "string" },
+                "example": "@kopilawak"
+            },
+            "TikTokPostType": {
+                "name": "post_type",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "enum": ["video", "photo"] }
+            },
+            "TikTokId": {
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[0-9]+$" }
+            }
+        },
+        "responses": {
+            "DiscordEmbed": {
+                "description": "Component embed html for multi media posts",
+                "content": { "text/html": { "schema": { "type": "string" } } }
+            },
+            "Redirect": {
+                "description": "Redirect to the original post for browsers, otherwise to the post's only media",
+                "headers": {
+                    "Location": {
+                        "schema": { "type": "string", "format": "uri" }
+                    }
+                }
+            },
+            "Post": {
+                "description": "The post",
+                "content": {
+                    "application/json": {
+                        "schema": { "$ref": "#/components/schemas/Post" }
+                    }
+                }
+            },
+            "JsonError": {
+                "description": "The post, media or avatar couldn't be loaded",
+                "content": {
+                    "application/json": {
+                        "schema": { "$ref": "#/components/schemas/Error" }
+                    }
+                }
+            }
+        },
+        "schemas": {
+            "Post": {
+                "type": "object",
+                "required": [
+                    "platform",
+                    "id",
+                    "url",
+                    "description",
+                    "author",
+                    "stats",
+                    "media"
+                ],
+                "properties": {
+                    "platform": {
+                        "type": "string",
+                        "enum": ["facebook", "instagram", "tiktok"]
+                    },
+                    "id": { "type": "string" },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Canonical post url"
+                    },
+                    "description": { "type": ["string", "null"] },
+                    "author": {
+                        "oneOf": [
+                            { "$ref": "#/components/schemas/Author" },
+                            { "type": "null" }
+                        ]
+                    },
+                    "stats": { "$ref": "#/components/schemas/Stats" },
+                    "media": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/Media" }
+                    }
+                }
+            },
+            "Author": {
+                "type": "object",
+                "required": ["name", "username", "url", "avatar_url"],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Display name with the username, e.g. `Name (@username)`"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Empty when the platform has none, e.g. some Facebook profiles"
+                    },
+                    "url": { "type": ["string", "null"], "format": "uri" },
+                    "avatar_url": {
+                        "type": ["string", "null"],
+                        "format": "uri",
+                        "description": "Avatar route for the post"
+                    }
+                }
+            },
+            "Stats": {
+                "type": "object",
+                "required": ["likes", "reposts", "comments"],
+                "properties": {
+                    "likes": { "type": ["integer", "null"] },
+                    "reposts": { "type": ["integer", "null"] },
+                    "comments": { "type": ["integer", "null"] }
+                }
+            },
+            "Media": {
+                "type": "object",
+                "required": ["type", "url", "width", "height"],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["image", "video", "audio"]
+                    },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Media route for the post"
+                    },
+                    "width": { "type": ["integer", "null"] },
+                    "height": { "type": ["integer", "null"] }
+                }
+            },
+            "Error": {
+                "type": "object",
+                "required": ["error"],
+                "properties": { "error": { "type": "string" } }
+            }
+        }
+    }
+}

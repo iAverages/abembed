@@ -21,17 +21,55 @@
       };
       lib = pkgs.lib;
       gitTag = self.shortRev or "dev";
-
       craneLib = (crane.mkLib pkgs).overrideToolchain (
         p:
           p.rust-bin.stable.latest.default.override {
+            targets = ["x86_64-unknown-linux-gnu" "wasm32-unknown-unknown"];
             extensions = [
               "rust-src"
               "rust-analyzer"
             ];
-            targets = ["wasm32-unknown-unknown"];
           }
       );
+      # worker-build --panic-unwind rebuilds std, which needs nightly.
+      rustNightly = pkgs.rust-bin.selectLatestNightlyWith (t:
+        t.default.override {
+          targets = ["wasm32-unknown-unknown"];
+          extensions = [
+            "rust-src"
+            "rust-analyzer"
+          ];
+        });
+      devCraneLib = craneLib.overrideToolchain rustNightly;
+      # worker-build runs `cargo +nightly`, `rustc +nightly` and asks rustup whether rust-src
+      # is installed, so point all of that at the pinned nightly instead of rustup.
+      nightlyShims = pkgs.symlinkJoin {
+        name = "nightly-shims";
+        paths =
+          map (tool:
+            pkgs.writeShellScriptBin tool ''
+              [ "$1" = +nightly ] && shift
+              exec ${rustNightly}/bin/${tool} "$@"
+            '') ["cargo" "rustc"]
+          ++ [(pkgs.writeShellScriptBin "rustup" "echo 'rust-src (installed)'")];
+      };
+      # nixpkgs only packages worker-build 0.7, which can't build `worker` 0.8 crates or --panic-unwind.
+      workerBuild = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
+        pname = "worker-build";
+        version = "0.8.7";
+        src = pkgs.fetchFromGitHub {
+          owner = "cloudflare";
+          repo = "workers-rs";
+          tag = "v${finalAttrs.version}";
+          hash = "sha256-ZZFyZeu/PGwUatOWG/SPI7y+XyiuUyHO7L5y0qtJl70=";
+          fetchSubmodules = true;
+        };
+        cargoHash = "sha256-AHTBKz8jwUaQpC03oH15NxtBQYO5PrvUVLwkz4+L5K8=";
+        buildAndTestSubdir = "worker-build";
+        nativeBuildInputs = [pkgs.pkg-config];
+        buildInputs = [pkgs.openssl];
+        doCheck = false;
+      });
       src = craneLib.cleanCargoSource ./.;
 
       commonRustArgs = {
@@ -128,7 +166,7 @@
         );
       };
       devShells.default = with pkgs;
-        craneLib.devShell {
+        devCraneLib.devShell {
           checks = self.checks.${system};
 
           packages = [
@@ -141,10 +179,15 @@
             kubernetes-helm
             ffmpeg-headless
             gifski
+            wrangler
+            workerBuild
           ];
+
+          SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
 
           shellHook = ''
             export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig";
+            export PATH="${nightlyShims}/bin:$PATH"
             export PATH="$PWD/node_modules/.bin/:$PATH"
           '';
         };
