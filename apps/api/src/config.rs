@@ -20,6 +20,11 @@ pub struct MachinaConfig {
     #[envconfig(from = "SPOTIFY_METADATA_CACHE_MAX_BYTES", default = "10485760")]
     pub spotify_metadata_cache_max_bytes: u64,
 
+    // playlists are mutable, so their embed metadata is only trusted for this
+    // long before it is fetched again and checked for changes
+    #[envconfig(from = "SPOTIFY_PLAYLIST_METADATA_TTL_SECS", default = "60")]
+    pub spotify_playlist_metadata_ttl_secs: u64,
+
     #[envconfig(from = "SPQTIFY_DEFAULT_BASE_COLOR", default = "#000")]
     pub default_base_color: String,
 

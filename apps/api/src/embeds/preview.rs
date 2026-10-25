@@ -107,42 +107,35 @@ async fn get_collection_page(
         )
     };
 
-    let collection_video_id = build_collection_video_id(
+    ensure_collection_video(
+        &state,
         collection_kind,
         &collection_id,
-        collection_data.selected_track_index,
-        &collection_data.track.media_id,
-    );
-
-    state
-        .preview_generation
-        .ensure_generated(PreloadedPreviewInput {
-            track_id: collection_video_id,
-            video_kind: collection_kind.video_kind(),
-            preview_url: collection_data.track.preview_audio_url.clone(),
-            og_bytes: og.image_bytes,
-        })
-        .await
-        .map_err(map_preview_error)?;
+        &collection_data,
+        og.image_bytes,
+    )
+    .await?;
 
     let canonical_path = format!("/{}/{}", collection_kind.path_segment(), collection_id);
     let collection_image_url = append_query(
         format!(
-            "{}/api/generate/image/{}/{}?track={}",
+            "{}/api/generate/image/{}/{}?track={}&v={}",
             state.app_url.trim_end_matches('/'),
             collection_kind.path_segment(),
             collection_id,
             collection_data.selected_track_index + 1,
+            collection_data.content_fingerprint,
         ),
         raw_query.as_deref(),
     );
     let collection_video_url = append_query(
         format!(
-            "{}/api/generate/video/{}/{}.mp4?track={}",
+            "{}/api/generate/video/{}/{}.mp4?track={}&v={}",
             state.app_url.trim_end_matches('/'),
             collection_kind.path_segment(),
             collection_id,
             collection_data.selected_track_index + 1,
+            collection_data.content_fingerprint,
         ),
         raw_query.as_deref(),
     );
@@ -505,23 +498,14 @@ async fn get_preview_collection_video(
         .await
         .map_err(map_preview_error)?;
 
-    let collection_video_id = build_collection_video_id(
+    let collection_video_id = ensure_collection_video(
+        &state,
         collection_kind,
         &collection_id,
-        collection_data.selected_track_index,
-        &collection_data.track.media_id,
-    );
-
-    state
-        .preview_generation
-        .ensure_generated(PreloadedPreviewInput {
-            track_id: collection_video_id.clone(),
-            video_kind: collection_kind.video_kind(),
-            preview_url: collection_data.track.preview_audio_url,
-            og_bytes: og.image_bytes,
-        })
-        .await
-        .map_err(map_preview_error)?;
+        &collection_data,
+        og.image_bytes,
+    )
+    .await?;
 
     let served = state
         .preview_generation
@@ -593,16 +577,68 @@ fn map_preview_error(error: impl std::fmt::Display) -> (StatusCode, String) {
     )
 }
 
+async fn ensure_collection_video(
+    state: &AppState,
+    collection_kind: SpotifyCollectionKind,
+    collection_id: &str,
+    collection_data: &SpotifyCollectionTrackMetadata,
+    og_bytes: Bytes,
+) -> Result<String, (StatusCode, String)> {
+    let collection_video_id = build_collection_video_id(
+        collection_kind,
+        collection_id,
+        collection_data.selected_track_index,
+        &collection_data.track.media_id,
+        &collection_data.content_fingerprint,
+    );
+
+    let generation = state
+        .preview_generation
+        .ensure_generated(PreloadedPreviewInput {
+            track_id: collection_video_id.clone(),
+            video_kind: collection_kind.video_kind(),
+            preview_url: collection_data.track.preview_audio_url.clone(),
+            og_bytes,
+        })
+        .await
+        .map_err(map_preview_error)?;
+
+    if matches!(generation, CacheStatus::Rendered) {
+        state
+            .preview_generation
+            .invalidate_stale_variants(
+                &collection_video_id_prefix(collection_kind, collection_id),
+                &collection_video_variant_suffix(&collection_data.content_fingerprint),
+            )
+            .await;
+    }
+
+    Ok(collection_video_id)
+}
+
 fn build_collection_video_id(
     collection_kind: SpotifyCollectionKind,
     collection_id: &str,
     selected_track_index: usize,
     media_track_id: &str,
+    content_fingerprint: &str,
 ) -> String {
     format!(
-        "{}-{collection_id}-{selected_track_index}-{media_track_id}",
-        collection_kind.path_segment()
+        "{}{selected_track_index}-{media_track_id}{}",
+        collection_video_id_prefix(collection_kind, collection_id),
+        collection_video_variant_suffix(content_fingerprint),
     )
+}
+
+fn collection_video_id_prefix(
+    collection_kind: SpotifyCollectionKind,
+    collection_id: &str,
+) -> String {
+    format!("{}-{collection_id}-", collection_kind.path_segment())
+}
+
+fn collection_video_variant_suffix(content_fingerprint: &str) -> String {
+    format!("-{content_fingerprint}")
 }
 
 fn spotify_collection_url(collection_kind: SpotifyCollectionKind, collection_id: &str) -> String {
@@ -823,7 +859,8 @@ mod tests {
     use super::{
         ComponentEmbedDetails, append_query, build_collection_video_id, build_component_embed_json,
         build_component_subtitle, build_passthrough_redirect, build_preview_meta_page,
-        fallback_media_type, spotify_collection_url,
+        collection_video_id_prefix, collection_video_variant_suffix, fallback_media_type,
+        spotify_collection_url,
     };
     use crate::embeds::VideoKind;
     use crate::embeds::spotify_metadata::{SpotifyCollectionKind, SpotifyPreviewMetadata};
@@ -882,12 +919,46 @@ mod tests {
     #[test]
     fn collection_video_ids_are_namespaced_by_kind() {
         assert_eq!(
-            build_collection_video_id(SpotifyCollectionKind::Album, "id", 1, "track"),
-            "album-id-1-track"
+            build_collection_video_id(SpotifyCollectionKind::Album, "id", 1, "track", "fp1"),
+            "album-id-1-track-fp1"
         );
         assert_eq!(
-            build_collection_video_id(SpotifyCollectionKind::Playlist, "id", 1, "track"),
-            "playlist-id-1-track"
+            build_collection_video_id(SpotifyCollectionKind::Playlist, "id", 1, "track", "fp1"),
+            "playlist-id-1-track-fp1"
+        );
+    }
+
+    #[test]
+    fn collection_video_ids_change_with_the_content_fingerprint() {
+        let before =
+            build_collection_video_id(SpotifyCollectionKind::Playlist, "id", 1, "track", "aaa");
+        let after =
+            build_collection_video_id(SpotifyCollectionKind::Playlist, "id", 1, "track", "bbb");
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn collection_video_id_prefix_and_suffix_bracket_every_variant() {
+        let prefix = collection_video_id_prefix(SpotifyCollectionKind::Playlist, "id");
+        let suffix = collection_video_variant_suffix("fp1");
+        for (index, track) in [(0, "t1"), (7, "t2")] {
+            let id = build_collection_video_id(
+                SpotifyCollectionKind::Playlist,
+                "id",
+                index,
+                track,
+                "fp1",
+            );
+            assert!(id.starts_with(&prefix), "{id} should start with {prefix}");
+            assert!(id.ends_with(&suffix), "{id} should end with {suffix}");
+        }
+        assert!(
+            !build_collection_video_id(SpotifyCollectionKind::Playlist, "id", 0, "t1", "fp0")
+                .ends_with(&suffix)
+        );
+        assert!(
+            !build_collection_video_id(SpotifyCollectionKind::Playlist, "id2", 0, "t1", "fp1")
+                .starts_with(&prefix)
         );
     }
 

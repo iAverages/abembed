@@ -39,3 +39,5 @@ init-tracing-opentelemetry = { version = "0.37.0", features = [
     "tracing_subscriber_ext",
 ] }
 posthog-rs = { version = "0.23.2", default-features = false, features = ["async-client"] }
+sha2 = "0.10.8"
+hex = "0.4.3"

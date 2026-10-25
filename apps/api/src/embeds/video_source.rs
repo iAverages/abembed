@@ -1,5 +1,7 @@
 use std::io::Cursor;
+use std::num::NonZeroU32;
 
+use backblaze_b2_client::definitions::bodies::B2DeleteFileVersionBody;
 use backblaze_b2_client::definitions::query_params::{
     B2DownloadFileQueryParameters, B2ListFileNamesQueryParameters,
 };
@@ -18,6 +20,9 @@ pub enum VideoSourceError {
 
     #[error("failed to upload video bytes to source")]
     UploadFailed,
+
+    #[error("failed to delete video from source")]
+    DeleteFailed,
 }
 
 pub struct B2VideoSource;
@@ -102,8 +107,100 @@ impl B2VideoSource {
             .map_err(|_| VideoSourceError::UploadFailed)?;
         Ok(())
     }
+
+    pub async fn delete_stale_variants(
+        &self,
+        video_id_prefix: &str,
+        keep_suffix: &str,
+    ) -> Result<usize, VideoSourceError> {
+        let files = get_b2()
+            .basic_client()
+            .list_file_names(
+                B2ListFileNamesQueryParameters::builder()
+                    .bucket_id(MACHINA_CONFIG.b2_bucket_id.clone())
+                    .prefix(Some(format!("{B2_VIDEO_ROOT}/{video_id_prefix}")))
+                    .max_file_count(NonZeroU32::new(1_000))
+                    .build(),
+            )
+            .await
+            .map_err(|_| VideoSourceError::ReadFailed)?;
+
+        let mut deleted = 0;
+        for file in files.files {
+            let Some(video_id) = video_id_from_b2_path(&file.file_name) else {
+                continue;
+            };
+            if !is_stale_variant(video_id, video_id_prefix, keep_suffix) {
+                continue;
+            }
+
+            get_b2()
+                .basic_client()
+                .delete_file_version(
+                    B2DeleteFileVersionBody::builder()
+                        .file_name(file.file_name.clone())
+                        .file_id(file.file_id.clone())
+                        .build(),
+                )
+                .await
+                .map_err(|_| VideoSourceError::DeleteFailed)?;
+            tracing::debug!(video_id = video_id, "deleted stale video from source");
+            deleted += 1;
+        }
+
+        Ok(deleted)
+    }
 }
 
+const B2_VIDEO_ROOT: &str = "generated";
+
 fn get_b2_video_path(track_id: &str) -> String {
-    format!("generated/{track_id}/out.mp4")
+    format!("{B2_VIDEO_ROOT}/{track_id}/out.mp4")
+}
+
+fn video_id_from_b2_path(path: &str) -> Option<&str> {
+    path.strip_prefix(B2_VIDEO_ROOT)?
+        .strip_prefix('/')?
+        .strip_suffix("/out.mp4")
+}
+
+fn is_stale_variant(video_id: &str, video_id_prefix: &str, keep_suffix: &str) -> bool {
+    video_id.starts_with(video_id_prefix) && !video_id.ends_with(keep_suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_b2_video_path, is_stale_variant, video_id_from_b2_path};
+
+    #[test]
+    fn video_id_round_trips_through_b2_path() {
+        let path = get_b2_video_path("playlist-p1-0-t1-abc");
+        assert_eq!(path, "generated/playlist-p1-0-t1-abc/out.mp4");
+        assert_eq!(video_id_from_b2_path(&path), Some("playlist-p1-0-t1-abc"));
+        assert_eq!(video_id_from_b2_path("generated/playlist-p1/og.png"), None);
+    }
+
+    #[test]
+    fn stale_variant_detection_matches_prefix_and_fingerprint() {
+        assert!(is_stale_variant(
+            "playlist-p1-0-t1-old",
+            "playlist-p1-",
+            "-new"
+        ));
+        assert!(!is_stale_variant(
+            "playlist-p1-3-t9-new",
+            "playlist-p1-",
+            "-new"
+        ));
+        assert!(!is_stale_variant(
+            "playlist-p10-0-t1-old",
+            "playlist-p1-",
+            "-new"
+        ));
+        assert!(!is_stale_variant(
+            "album-p1-0-t1-old",
+            "playlist-p1-",
+            "-new"
+        ));
+    }
 }

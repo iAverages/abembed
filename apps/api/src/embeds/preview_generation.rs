@@ -174,7 +174,7 @@ impl PreviewGeneration {
     pub async fn ensure_generated(
         &self,
         input: PreloadedPreviewInput,
-    ) -> Result<(), PreviewGenerationError> {
+    ) -> Result<CacheStatus, PreviewGenerationError> {
         let track_id = normalize_track_id(&input.track_id)?;
         tracing::debug!(track_id = track_id.as_str(), "ensure_generated started");
 
@@ -183,7 +183,7 @@ impl PreviewGeneration {
                 track_id = track_id.as_str(),
                 "generation skipped, already in cache"
             );
-            return Ok(());
+            return Ok(CacheStatus::Hit);
         }
 
         if self
@@ -195,7 +195,7 @@ impl PreviewGeneration {
                 track_id = track_id.as_str(),
                 "generation skipped, hydrated from source"
             );
-            return Ok(());
+            return Ok(CacheStatus::Hydrated);
         }
 
         let mut is_leader = false;
@@ -222,7 +222,7 @@ impl PreviewGeneration {
                     track_id = track_id.as_str(),
                     "generation waiter resolved from cache"
                 );
-                return Ok(());
+                return Ok(CacheStatus::Hit);
             }
             if self
                 .hydrate_from_source(&track_id, Some(input.video_kind))
@@ -233,7 +233,7 @@ impl PreviewGeneration {
                     track_id = track_id.as_str(),
                     "generation waiter resolved from source hydration"
                 );
-                return Ok(());
+                return Ok(CacheStatus::Hydrated);
             }
             return Err(PreviewGenerationError::GenerationFailed);
         }
@@ -255,7 +255,41 @@ impl PreviewGeneration {
         }
         drop(tasks);
 
-        result
+        result.map(|()| CacheStatus::Rendered)
+    }
+
+    pub async fn invalidate_stale_variants(&self, video_id_prefix: &str, keep_suffix: &str) {
+        let removed_from_cache = self
+            .cache
+            .remove_stale_variants(video_id_prefix, keep_suffix)
+            .await;
+        tracing::info!(
+            video_id_prefix = video_id_prefix,
+            keep_suffix = keep_suffix,
+            removed_from_cache = removed_from_cache,
+            "invalidating stale collection videos"
+        );
+
+        let video_source = self.video_source.clone();
+        let video_id_prefix = video_id_prefix.to_string();
+        let keep_suffix = keep_suffix.to_string();
+        task::spawn(async move {
+            match video_source
+                .delete_stale_variants(&video_id_prefix, &keep_suffix)
+                .await
+            {
+                Ok(deleted) => tracing::info!(
+                    video_id_prefix = video_id_prefix.as_str(),
+                    deleted = deleted,
+                    "removed stale collection videos from source"
+                ),
+                Err(error) => tracing::warn!(
+                    video_id_prefix = video_id_prefix.as_str(),
+                    error = %error,
+                    "failed to remove stale collection videos from source"
+                ),
+            }
+        });
     }
 
     async fn render_and_cache(

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use tokio::sync::RwLock;
@@ -28,6 +28,14 @@ impl VideoCache {
     pub async fn get_video_bytes(&self, video_id: &str) -> Option<(Bytes, VideoKind)> {
         let cached = self.cache.get(video_id).await?;
         Some((cached.bytes, cached.video_kind))
+    }
+
+    pub async fn remove_stale_variants(&self, video_id_prefix: &str, keep_suffix: &str) -> usize {
+        self.cache
+            .remove_where(|video_id| {
+                video_id.starts_with(video_id_prefix) && !video_id.ends_with(keep_suffix)
+            })
+            .await
     }
 
     pub async fn cache_video_bytes(
@@ -104,8 +112,12 @@ impl MetadataCache {
     }
 
     pub async fn insert(&self, key: String, bytes: Bytes) {
+        self.insert_with_ttl(key, bytes, None).await;
+    }
+
+    pub async fn insert_with_ttl(&self, key: String, bytes: Bytes, ttl: Option<Duration>) {
         let size = bytes.len() as u64;
-        let _ = self.cache.insert(key, size, bytes).await;
+        let _ = self.cache.insert_with_ttl(key, size, bytes, ttl).await;
     }
 }
 
@@ -126,17 +138,56 @@ impl<T: Clone> BoundedCache<T> {
     }
 
     async fn contains_key(&self, key: &str) -> bool {
-        self.state.read().await.entries.contains_key(key)
+        self.state
+            .read()
+            .await
+            .entries
+            .get(key)
+            .is_some_and(|cached| !cached.is_expired(Instant::now()))
     }
 
     async fn get(&self, key: &str) -> Option<T> {
         let mut state = self.state.write().await;
+        let now = Instant::now();
+        if state
+            .entries
+            .get(key)
+            .is_some_and(|cached| cached.is_expired(now))
+        {
+            state.remove_entry(key);
+            return None;
+        }
+
         let cached = state.entries.get_mut(key)?;
-        cached.last_accessed = Instant::now();
+        cached.last_accessed = now;
         Some(cached.value.clone())
     }
 
+    async fn remove_where(&self, predicate: impl Fn(&str) -> bool) -> usize {
+        let mut state = self.state.write().await;
+        let keys = state
+            .entries
+            .keys()
+            .filter(|key| predicate(key))
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in &keys {
+            state.remove_entry(key);
+        }
+        keys.len()
+    }
+
     async fn insert(&self, key: String, size_bytes: u64, value: T) -> CacheInsertResult {
+        self.insert_with_ttl(key, size_bytes, value, None).await
+    }
+
+    async fn insert_with_ttl(
+        &self,
+        key: String,
+        size_bytes: u64,
+        value: T,
+        ttl: Option<Duration>,
+    ) -> CacheInsertResult {
         let mut state = self.state.write().await;
         if state.max_size_bytes == 0 {
             return CacheInsertResult::Disabled;
@@ -147,12 +198,14 @@ impl<T: Clone> BoundedCache<T> {
             };
         }
 
+        let now = Instant::now();
         let replaced_existing = if let Some(previous) = state.entries.insert(
             key.clone(),
             CachedData {
                 value,
                 size_bytes,
-                last_accessed: Instant::now(),
+                last_accessed: now,
+                expires_at: ttl.map(|ttl| now + ttl),
             },
         ) {
             state.current_size_bytes -= previous.size_bytes;
@@ -204,6 +257,14 @@ struct CacheState<T> {
     max_size_bytes: u64,
 }
 
+impl<T> CacheState<T> {
+    fn remove_entry(&mut self, key: &str) {
+        if let Some(removed) = self.entries.remove(key) {
+            self.current_size_bytes -= removed.size_bytes;
+        }
+    }
+}
+
 enum CacheInsertResult {
     Disabled,
     Oversized {
@@ -228,6 +289,13 @@ struct CachedData<T> {
     value: T,
     size_bytes: u64,
     last_accessed: Instant,
+    expires_at: Option<Instant>,
+}
+
+impl<T> CachedData<T> {
+    fn is_expired(&self, now: Instant) -> bool {
+        self.expires_at.is_some_and(|expires_at| now >= expires_at)
+    }
 }
 
 #[cfg(test)]
@@ -344,5 +412,68 @@ mod tests {
         cache.insert("a".to_string(), bytes_with_size(4)).await;
 
         assert!(cache.get("a").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn metadata_cache_entries_expire_after_ttl() {
+        let cache = MetadataCache::new(1_024);
+        cache
+            .insert_with_ttl(
+                "playlist".to_string(),
+                bytes_with_size(4),
+                Some(Duration::from_millis(20)),
+            )
+            .await;
+        cache
+            .insert_with_ttl("track".to_string(), bytes_with_size(4), None)
+            .await;
+
+        assert!(cache.get("playlist").await.is_some());
+        sleep(Duration::from_millis(30)).await;
+
+        assert!(cache.get("playlist").await.is_none());
+        assert!(cache.get("track").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn expired_entries_release_their_size_budget() {
+        let cache = MetadataCache::new(8);
+        cache
+            .insert_with_ttl(
+                "old".to_string(),
+                bytes_with_size(6),
+                Some(Duration::from_millis(5)),
+            )
+            .await;
+        sleep(Duration::from_millis(10)).await;
+        assert!(cache.get("old").await.is_none());
+
+        cache.insert("new".to_string(), bytes_with_size(6)).await;
+        assert!(cache.get("new").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn remove_stale_variants_keeps_current_fingerprint_only() {
+        let cache = test_cache(100).await;
+        for id in [
+            "playlist-p1-0-t1-old",
+            "playlist-p1-1-t2-old",
+            "playlist-p1-0-t1-new",
+            "playlist-p2-0-t1-old",
+            "album-p1-0-t1-old",
+        ] {
+            cache
+                .cache_video_bytes(id.to_string(), bytes_with_size(4), VideoKind::Playlist)
+                .await;
+        }
+
+        let removed = cache.remove_stale_variants("playlist-p1-", "-new").await;
+
+        assert_eq!(removed, 2);
+        assert!(!cache.has_id("playlist-p1-0-t1-old").await);
+        assert!(!cache.has_id("playlist-p1-1-t2-old").await);
+        assert!(cache.has_id("playlist-p1-0-t1-new").await);
+        assert!(cache.has_id("playlist-p2-0-t1-old").await);
+        assert!(cache.has_id("album-p1-0-t1-old").await);
     }
 }

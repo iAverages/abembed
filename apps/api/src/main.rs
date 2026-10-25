@@ -25,6 +25,7 @@ use init_tracing_opentelemetry::{LogTimer, TracingConfig};
 use once_cell::sync::{Lazy, OnceCell};
 use reqwest::Method;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs::{self};
 use tokio::signal;
 use tokio::task;
@@ -77,9 +78,10 @@ async fn main() {
 
     let _ = B2.set(b2);
 
-    let spotify_metadata = Arc::new(SpotifyMetadataClient::new(MetadataCache::new(
-        MACHINA_CONFIG.spotify_metadata_cache_max_bytes,
-    )));
+    let spotify_metadata = Arc::new(SpotifyMetadataClient::new(
+        MetadataCache::new(MACHINA_CONFIG.spotify_metadata_cache_max_bytes),
+        Duration::from_secs(MACHINA_CONFIG.spotify_playlist_metadata_ttl_secs),
+    ));
     let image_client = Arc::new(EmbedImageClient::new());
     let renderer = Arc::new(FfmpegRenderer::new(
         MACHINA_CONFIG.video_generator_dir.clone(),

@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
 
 use crate::embeds::VideoKind;
 use crate::embeds::cache_manager::MetadataCache;
@@ -76,6 +79,8 @@ pub struct SpotifyCollectionTrackMetadata {
     pub selected_track_index: usize,
     pub track_names: Vec<String>,
     pub track: SpotifyPreviewMetadata,
+    // hash of all variables in the collection. mainly for playlists that can be updated by users used to regenerate videos if altered.
+    pub content_fingerprint: String,
 }
 
 impl SpotifyCollectionTrackMetadata {
@@ -86,11 +91,15 @@ impl SpotifyCollectionTrackMetadata {
 
 pub struct SpotifyMetadataClient {
     cache: MetadataCache,
+    playlist_metadata_ttl: Duration,
 }
 
 impl SpotifyMetadataClient {
-    pub fn new(cache: MetadataCache) -> Self {
-        Self { cache }
+    pub fn new(cache: MetadataCache, playlist_metadata_ttl: Duration) -> Self {
+        Self {
+            cache,
+            playlist_metadata_ttl,
+        }
     }
 
     pub async fn get_track_metadata(
@@ -200,11 +209,18 @@ impl SpotifyMetadataClient {
             requested_track = raw_track.unwrap_or(""),
             "fetching spotify collection metadata"
         );
+        let cache_ttl = match collection_kind {
+            SpotifyCollectionKind::Playlist => Some(self.playlist_metadata_ttl),
+            SpotifyCollectionKind::Album => None,
+        };
         let json: CollectionRoot = self
-            .fetch_spotify_embed_json(format!(
-                "https://open.spotify.com/embed/{}/{collection_id}",
-                collection_kind.path_segment()
-            ))
+            .fetch_spotify_embed_json_with_ttl(
+                format!(
+                    "https://open.spotify.com/embed/{}/{collection_id}",
+                    collection_kind.path_segment()
+                ),
+                cache_ttl,
+            )
             .await
             .map_err(|_| SpotifyMetadataError::RequestFailed)?;
 
@@ -244,6 +260,14 @@ impl SpotifyMetadataClient {
     }
 
     async fn fetch_spotify_embed_json<T: DeserializeOwned>(&self, url: String) -> Result<T> {
+        self.fetch_spotify_embed_json_with_ttl(url, None).await
+    }
+
+    async fn fetch_spotify_embed_json_with_ttl<T: DeserializeOwned>(
+        &self,
+        url: String,
+        cache_ttl: Option<Duration>,
+    ) -> Result<T> {
         let cache_key = format!("embed:{url}");
         if let Some(json) = self.cache.get(&cache_key).await {
             tracing::debug!(url = url.as_str(), "spotify embed cache hit");
@@ -262,7 +286,7 @@ impl SpotifyMetadataClient {
         tracing::debug!(json_len = json_text.len(), "spotify embed json extracted");
         let json = Bytes::from(json_text);
         let parsed = serde_json::from_slice(&json)?;
-        self.cache.insert(cache_key, json).await;
+        self.cache.insert_with_ttl(cache_key, json, cache_ttl).await;
         Ok(parsed)
     }
 
@@ -355,6 +379,8 @@ fn normalize_collection_metadata(
         .filter(|url| !url.is_empty())
         .ok_or_else(|| anyhow!("missing artwork"))?;
 
+    let content_fingerprint = collection_content_fingerprint(&entity, &artwork_url);
+
     let track_names = entity
         .track_list
         .iter()
@@ -415,7 +441,39 @@ fn normalize_collection_metadata(
         selected_track_index: track_index,
         track_names,
         track: track_metadata,
+        content_fingerprint,
     })
+}
+
+const COLLECTION_FINGERPRINT_LEN: usize = 16;
+
+fn collection_content_fingerprint(entity: &CollectionEntity, artwork_url: &str) -> String {
+    const FIELD_SEPARATOR: &[u8] = &[0x1f];
+
+    fn feed(hasher: &mut Sha256, value: &str) {
+        hasher.update(value.trim().as_bytes());
+        hasher.update(FIELD_SEPARATOR);
+    }
+
+    let mut hasher = Sha256::new();
+    feed(&mut hasher, &entity.title);
+    feed(&mut hasher, &entity.subtitle);
+    feed(&mut hasher, artwork_url);
+    feed(&mut hasher, &entity.track_list.len().to_string());
+    for track in &entity.track_list {
+        feed(&mut hasher, &track.uri);
+        feed(&mut hasher, &track.title);
+        feed(&mut hasher, &track.subtitle);
+        feed(
+            &mut hasher,
+            &track.duration.map(|d| d.to_string()).unwrap_or_default(),
+        );
+        feed(&mut hasher, &track.audio_preview.url);
+    }
+
+    let mut digest = hex::encode(hasher.finalize());
+    digest.truncate(COLLECTION_FINGERPRINT_LEN);
+    digest
 }
 
 fn resolve_requested_track_index(raw_track: Option<&str>, track_count: usize) -> Option<usize> {
@@ -773,6 +831,7 @@ mod tests {
     use crate::embeds::cache_manager::MetadataCache;
     use bytes::Bytes;
     use serde_json::json;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn embed_lookup_uses_cached_json() {
@@ -783,7 +842,7 @@ mod tests {
                 Bytes::from_static(br#"{"cached":true}"#),
             )
             .await;
-        let client = SpotifyMetadataClient::new(cache);
+        let client = SpotifyMetadataClient::new(cache, Duration::from_secs(60));
 
         let value: serde_json::Value = client
             .fetch_spotify_embed_json("https://invalid.example/embed".to_string())
@@ -804,7 +863,7 @@ mod tests {
                 ),
             )
             .await;
-        let client = SpotifyMetadataClient::new(cache);
+        let client = SpotifyMetadataClient::new(cache, Duration::from_secs(60));
 
         let image_url = client.fetch_artist_image("artist-id").await.unwrap();
 
@@ -820,7 +879,7 @@ mod tests {
                 Bytes::from_static(br#"{"data":{"trackUnion":{"associationsV3":null}}}"#),
             )
             .await;
-        let client = SpotifyMetadataClient::new(cache);
+        let client = SpotifyMetadataClient::new(cache, Duration::from_secs(60));
 
         let preview = client
             .fetch_music_video_preview("track-id", "invalid-token")
@@ -931,5 +990,101 @@ mod tests {
         assert_eq!(metadata.collection_name, "Public playlist");
         assert_eq!(metadata.collection_creator, "Playlist curator");
         assert!(!metadata.track_count_is_capped());
+        assert_eq!(metadata.content_fingerprint.len(), 16);
+    }
+
+    fn playlist_root(title: &str, tracks: &[(&str, &str)]) -> CollectionRoot {
+        let track_list = tracks
+            .iter()
+            .map(|(uri, name)| {
+                json!({
+                    "uri": uri,
+                    "title": name,
+                    "subtitle": "Artist",
+                    "audioPreview": { "url": format!("https://preview/{name}.mp3") }
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::from_value(json!({
+            "props": {
+                "pageProps": {
+                    "state": {
+                        "data": {
+                            "entity": {
+                                "title": title,
+                                "subtitle": "Curator",
+                                "trackList": track_list,
+                                "visualIdentity": {
+                                    "image": [{ "url": "https://image/cover.jpg", "maxWidth": 640 }]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    fn fingerprint(root: CollectionRoot, track: Option<&str>) -> String {
+        normalize_collection_metadata(track, root)
+            .unwrap()
+            .content_fingerprint
+    }
+
+    #[test]
+    fn collection_fingerprint_is_stable_for_identical_content() {
+        let tracks = [("spotify:track:a", "A"), ("spotify:track:b", "B")];
+        let first = fingerprint(playlist_root("Mix", &tracks), None);
+        let second = fingerprint(playlist_root("Mix", &tracks), None);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn collection_fingerprint_ignores_which_track_is_selected() {
+        let tracks = [("spotify:track:a", "A"), ("spotify:track:b", "B")];
+        let first = fingerprint(playlist_root("Mix", &tracks), Some("1"));
+        let second = fingerprint(playlist_root("Mix", &tracks), Some("2"));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn collection_fingerprint_changes_when_playlist_changes() {
+        let tracks = [("spotify:track:a", "A"), ("spotify:track:b", "B")];
+        let base = fingerprint(playlist_root("Mix", &tracks), None);
+
+        let renamed = fingerprint(playlist_root("Mix v2", &tracks), None);
+        assert_ne!(base, renamed, "renaming the playlist must change it");
+
+        let reordered = fingerprint(
+            playlist_root("Mix", &[("spotify:track:b", "B"), ("spotify:track:a", "A")]),
+            None,
+        );
+        assert_ne!(base, reordered, "reordering tracks must change it");
+
+        let added = fingerprint(
+            playlist_root(
+                "Mix",
+                &[
+                    ("spotify:track:a", "A"),
+                    ("spotify:track:b", "B"),
+                    ("spotify:track:c", "C"),
+                ],
+            ),
+            None,
+        );
+        assert_ne!(base, added, "adding a track must change it");
+
+        let removed = fingerprint(playlist_root("Mix", &[("spotify:track:a", "A")]), None);
+        assert_ne!(base, removed, "removing a track must change it");
+
+        let retitled = fingerprint(
+            playlist_root(
+                "Mix",
+                &[("spotify:track:a", "A!"), ("spotify:track:b", "B")],
+            ),
+            None,
+        );
+        assert_ne!(base, retitled, "a track title change must change it");
     }
 }
