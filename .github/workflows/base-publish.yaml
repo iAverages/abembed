@@ -35,7 +35,7 @@ jobs:
         with:
           server-url: https://niks3.kirsi.dev
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
