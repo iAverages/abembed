@@ -39,6 +39,7 @@ pub const ACCOUNT_FIELDS: AccountFields = AccountFields {
         "sec-ch-ua-platform",
         "sec-ch-ua-mobile",
     ],
+    csrf_header: None,
 };
 
 pub fn get_router() -> Router<Env> {
@@ -90,7 +91,7 @@ async fn avatar_api(
     Path((media_type, shortcode)): Path<(String, String)>,
 ) -> Result<Response, HttpError> {
     let source = InstagramSource::new(&media_type, &shortcode)?;
-    super::avatar(&env, &source).await
+    super::avatar(&env, &source, 0).await
 }
 
 #[worker::send]
@@ -162,6 +163,7 @@ async fn resolve_with_account(
             ("Sec-Fetch-Site", "none"),
         ],
         RequestRedirect::Manual,
+        None,
         |response| classify_account_page(source, response),
     )
     .await

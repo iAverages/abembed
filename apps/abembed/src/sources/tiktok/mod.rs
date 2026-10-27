@@ -114,7 +114,7 @@ async fn avatar_api(
     Path((username, post_type, id)): Path<(String, String, String)>,
 ) -> Result<Response, HttpError> {
     let source = TikTokSource::new(&username, &post_type, &id)?;
-    super::avatar(&env, &source).await
+    super::avatar(&env, &source, 0).await
 }
 
 fn short_url(shortcode: &str) -> Result<String, HttpError> {

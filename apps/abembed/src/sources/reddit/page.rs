@@ -64,7 +64,10 @@ impl RedditSource {
                 comments: comment_count(html),
                 ..Stats::default()
             }),
+            lang: None,
             reply_to: None,
+            quote: None,
+            translation: None,
         })
     }
 }

@@ -1,4 +1,6 @@
-use crate::sources::{facebook, instagram, internal, warn, HttpError, ProviderResponse, Providers};
+use crate::sources::{
+    facebook, instagram, internal, twitter, warn, HttpError, ProviderResponse, Providers,
+};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
     Aes256Gcm, Nonce,
@@ -23,6 +25,7 @@ pub struct AccountFields {
     pub cookies: &'static [&'static str],
     pub refreshed_cookies: &'static [&'static str],
     pub headers: &'static [&'static str],
+    pub csrf_header: Option<(&'static str, &'static str)>,
 }
 
 pub enum Attempt<T> {
@@ -35,6 +38,7 @@ pub fn account_fields(platform: &str) -> Option<&'static AccountFields> {
     match platform {
         "instagram" => Some(&instagram::ACCOUNT_FIELDS),
         "facebook" => Some(&facebook::ACCOUNT_FIELDS),
+        "twitter" => Some(&twitter::ACCOUNT_FIELDS),
         _ => None,
     }
 }
@@ -224,6 +228,8 @@ impl AccountStore {
         Ok(())
     }
 
+    // todo: clean this up lazy rn
+    #[allow(clippy::too_many_arguments)]
     pub async fn first_success<T>(
         &self,
         providers: &Providers,
@@ -231,19 +237,20 @@ impl AccountStore {
         url: &str,
         headers: &[(&str, &str)],
         redirect: RequestRedirect,
+        body: Option<&str>,
         classify: impl Fn(&ProviderResponse) -> Attempt<T>,
     ) -> Result<Option<T>, HttpError> {
         let fields = account_fields(platform)
             .ok_or_else(|| internal(format!("No account fields for {platform}")))?;
 
         for account in self.active(platform).await? {
-            let request_headers = request_headers(headers, &account.credential);
+            let request_headers = request_headers(headers, &account.credential, fields);
             let request_headers: Vec<(&str, &str)> = request_headers
                 .iter()
                 .map(|(name, value)| (name.as_str(), value.as_str()))
                 .collect();
             let response = match providers
-                .fetch_raw(&account.region, url, &request_headers, redirect)
+                .fetch_raw(&account.region, url, &request_headers, redirect, body)
                 .await
             {
                 Ok(response) => response,
@@ -402,6 +409,7 @@ fn reauth_message(platform: &str, account: &Account, reason: &str) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn with_account<T>(
     env: &Env,
     providers: &Providers,
@@ -409,6 +417,7 @@ pub async fn with_account<T>(
     url: &str,
     headers: &[(&str, &str)],
     redirect: RequestRedirect,
+    body: Option<&str>,
     classify: impl Fn(&ProviderResponse) -> Attempt<T>,
 ) -> Option<T> {
     let allowed = match env.rate_limiter(LIMITER_BINDING) {
@@ -435,7 +444,7 @@ pub async fn with_account<T>(
             warn(&json!({ "event": "account_fallback", "platform": platform, "url": url, "error": message }));
         })
         .ok()?
-        .first_success(providers, platform, url, headers, redirect, classify)
+        .first_success(providers, platform, url, headers, redirect, body, classify)
         .await
         .unwrap_or_else(|HttpError(_, message)| {
             warn(&json!({ "event": "account_fallback", "platform": platform, "url": url, "error": message }));
@@ -443,7 +452,11 @@ pub async fn with_account<T>(
         })
 }
 
-fn request_headers(base: &[(&str, &str)], credential: &Credential) -> Vec<(String, String)> {
+fn request_headers(
+    base: &[(&str, &str)],
+    credential: &Credential,
+    fields: &AccountFields,
+) -> Vec<(String, String)> {
     let mut headers: Vec<(String, String)> = base
         .iter()
         .filter(|(name, _)| !credential.headers.contains_key(&name.to_ascii_lowercase()))
@@ -457,6 +470,11 @@ fn request_headers(base: &[(&str, &str)], credential: &Credential) -> Vec<(Strin
         .collect::<Vec<_>>()
         .join("; ");
     headers.push(("cookie".to_string(), cookie));
+    if let Some((cookie, header)) = fields.csrf_header {
+        if let Some(value) = credential.cookies.get(cookie) {
+            headers.push((header.to_string(), value.clone()));
+        }
+    }
     headers
 }
 
@@ -558,6 +576,7 @@ mod tests {
         let headers = request_headers(
             &[("User-Agent", "Mozilla/5.0"), ("Accept", "text/html")],
             &credential(),
+            &instagram::ACCOUNT_FIELDS,
         );
 
         assert_eq!(
@@ -569,6 +588,29 @@ mod tests {
                     "cookie".to_string(),
                     "ds_user_id=123; sessionid=session".to_string()
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn echoes_the_csrf_cookie_as_a_header() {
+        let credential = Credential {
+            cookies: BTreeMap::from([
+                ("auth_token".to_string(), "token".to_string()),
+                ("ct0".to_string(), "csrf".to_string()),
+            ]),
+            headers: BTreeMap::new(),
+        };
+        let headers = request_headers(&[], &credential, &twitter::ACCOUNT_FIELDS);
+
+        assert_eq!(
+            headers,
+            [
+                (
+                    "cookie".to_string(),
+                    "auth_token=token; ct0=csrf".to_string()
+                ),
+                ("x-csrf-token".to_string(), "csrf".to_string()),
             ]
         );
     }

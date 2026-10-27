@@ -3,6 +3,7 @@ pub mod html;
 pub mod instagram;
 pub mod reddit;
 pub mod tiktok;
+pub mod twitter;
 
 use axum::{
     http::{header, HeaderMap, StatusCode},
@@ -98,6 +99,16 @@ pub trait Source {
 
     fn media_url(&self, base: &str, index: usize) -> String;
     fn avatar_url(&self, base: &str) -> String;
+
+    // avatars of the posts shown under this one, by their place in `EmbedPost::entries`
+    fn entry_avatar_url(&self, base: &str, index: usize) -> String {
+        if index == 0 {
+            self.avatar_url(base)
+        } else {
+            format!("{}/{index}", self.avatar_url(base))
+        }
+    }
+
     async fn fetch(&self, env: &Env, providers: &Providers) -> Result<EmbedPost, HttpError>;
 
     fn embed_html(&self, post: &EmbedPost, base: &str) -> String {
@@ -110,7 +121,7 @@ pub fn gallery_html<S: Source + ?Sized>(source: &S, post: &EmbedPost, base: &str
         &S::SITE,
         post,
         |index| source.media_url(base, index),
-        &source.avatar_url(base),
+        |index| source.entry_avatar_url(base, index),
     )
 }
 
@@ -140,11 +151,12 @@ pub async fn media(env: &Env, source: &impl Source, index: usize) -> Result<Resp
     Ok(redirect(&media.url))
 }
 
-pub async fn avatar(env: &Env, source: &impl Source) -> Result<Response, HttpError> {
+pub async fn avatar(env: &Env, source: &impl Source, index: usize) -> Result<Response, HttpError> {
     let post = load_post(env, source).await?;
     let avatar_url = post
-        .author
-        .as_ref()
+        .entries()
+        .nth(index)
+        .and_then(|(_, entry)| entry.author.as_ref())
         .and_then(|author| author.avatar_url.as_deref())
         .ok_or(HttpError(
             StatusCode::NOT_FOUND,
@@ -286,15 +298,25 @@ pub fn objects(root: &Value) -> impl Iterator<Item = &Map<String, Value>> {
 }
 
 pub fn log(fields: &Value) {
-    if let Ok(object) = js_sys::JSON::parse(&fields.to_string()) {
+    if let Ok(object) = js_sys::JSON::parse(&with_message(fields).to_string()) {
         web_sys::console::log_1(&object);
     }
 }
 
 pub fn warn(fields: &Value) {
-    if let Ok(object) = js_sys::JSON::parse(&fields.to_string()) {
+    if let Ok(object) = js_sys::JSON::parse(&with_message(fields).to_string()) {
         web_sys::console::warn_1(&object);
     }
+}
+
+fn with_message(fields: &Value) -> Value {
+    let mut fields = fields.clone();
+    let error = fields
+        .as_object_mut()
+        .and_then(|fields| fields.remove("error"))
+        .filter(|error| !error.is_null());
+    fields["message"] = error.unwrap_or_else(|| fields["event"].clone());
+    fields
 }
 
 pub async fn load_post<S: Source>(env: &Env, source: &S) -> Result<EmbedPost, HttpError> {
@@ -480,7 +502,7 @@ impl Providers {
         let names = self.providers.iter().map(|(name, _)| name.as_str());
         for region in names.cycle().take(self.providers.len() * 2) {
             let result = self
-                .fetch_raw(region, url, headers, RequestRedirect::Follow)
+                .fetch_raw(region, url, headers, RequestRedirect::Follow, None)
                 .await
                 .and_then(|response| {
                     let parsed = match (200..300).contains(&response.status) {
@@ -514,7 +536,7 @@ impl Providers {
     ) -> Result<T, HttpError> {
         for (region, _) in &self.providers {
             match self
-                .fetch_raw(region, url, headers, RequestRedirect::Manual)
+                .fetch_raw(region, url, headers, RequestRedirect::Manual, None)
                 .await
             {
                 Ok(response) => {
@@ -550,6 +572,7 @@ impl Providers {
         url: &str,
         headers: &[(&str, &str)],
         redirect: RequestRedirect,
+        body: Option<&str>,
     ) -> Result<ProviderResponse, HttpError> {
         let index = self
             .providers
@@ -564,7 +587,13 @@ impl Providers {
                 let mut init = RequestInit::new();
                 init.with_headers(headers.iter().collect::<Headers>())
                     .with_redirect(redirect);
+                if let Some(body) = body {
+                    init.with_method(Method::Post).with_body(Some(body.into()));
+                }
                 fetcher.fetch(url, Some(init)).await
+            }
+            Provider::Hosted { .. } if body.is_some() => {
+                return Err(internal("Hosted providers cannot send a request body"));
             }
             Provider::Hosted { url: base, token } => {
                 let body = json!({
@@ -654,21 +683,43 @@ pub struct EmbedPost {
     pub media: Vec<Media>,
     pub stats: Option<Stats>,
 
+    #[serde(default)]
+    pub lang: Option<String>,
+
+    #[serde(default)]
     pub reply_to: Option<Box<EmbedPost>>,
+    #[serde(default)]
+    pub quote: Option<Box<EmbedPost>>,
+    #[serde(default)]
+    pub translation: Option<Translation>,
 }
 
 impl EmbedPost {
     pub fn entries(&self) -> impl Iterator<Item = (Option<&'static str>, &EmbedPost)> {
-        iter::once((None, self)).chain(
-            self.reply_to
-                .as_deref()
-                .map(|post| (Some("Replying to"), post)),
-        )
+        iter::once((None, self))
+            .chain(
+                self.reply_to
+                    .as_deref()
+                    .map(|post| (Some("Replying to"), post)),
+            )
+            .chain(
+                self.quote
+                    .as_deref()
+                    .map(|post| (Some("Quoted post"), post)),
+            )
     }
 
     pub fn all_media(&self) -> impl Iterator<Item = &Media> {
         self.entries().flat_map(|(_, post)| post.media.iter())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Translation {
+    pub text: String,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub provider: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -751,7 +802,10 @@ mod tests {
                 })
                 .collect(),
             stats: None,
+            lang: None,
             reply_to: None,
+            quote: None,
+            translation: None,
         }
     }
 

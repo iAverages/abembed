@@ -118,7 +118,10 @@ impl FacebookSource {
             author,
             media,
             stats,
+            lang: None,
             reply_to: None,
+            quote: None,
+            translation: None,
         })
     }
 
@@ -175,7 +178,10 @@ impl FacebookSource {
             author,
             media,
             stats: Some(stats),
+            lang: None,
             reply_to: None,
+            quote: None,
+            translation: None,
         })
     }
 }

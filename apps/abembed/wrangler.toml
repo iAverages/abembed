@@ -12,6 +12,9 @@ enabled = true
 [observability.traces]
 enabled = true
 
+[ai]
+binding = "AI"
+
 [[kv_namespaces]]
 binding = "POST_CACHE"
 id = "ff4b48bacddc418b9036cc1a18cbaa98"
@@ -108,6 +111,9 @@ routes = [
   { pattern = "www.abreddit.com", custom_domain = true },
   { pattern = "old.abreddit.com", custom_domain = true },
 
+  { pattern = "abtwitter.com", custom_domain = true },
+  { pattern = "www.abtwitter.com", custom_domain = true },
+
   { pattern = "abembed.com", custom_domain = true },
   { pattern = "www.abembed.com", custom_domain = true },
 
@@ -120,6 +126,9 @@ routes = [
   { pattern = "previews.abtiktok.com", custom_domain = true, enable = false, previews_enabled = true },
   { pattern = "previews.abtwitter.com", custom_domain = true, enable = false, previews_enabled = true },
 ]
+
+[env.production.ai]
+binding = "AI"
 
 [[env.production.kv_namespaces]]
 binding = "POST_CACHE"
@@ -166,6 +175,9 @@ routes = [
 { pattern = "staging.abtiktok.com", custom_domain = true },
 { pattern = "staging.abtwitter.com", custom_domain = true },
 ]
+
+[env.staging.ai]
+binding = "AI"
 
 [[env.staging.kv_namespaces]]
 binding = "POST_CACHE"

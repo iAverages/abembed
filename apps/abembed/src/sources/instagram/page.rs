@@ -55,7 +55,10 @@ impl InstagramSource {
             author: metadata.author,
             media,
             stats: Some(metadata.stats),
+            lang: None,
             reply_to: None,
+            quote: None,
+            translation: None,
         })
     }
 }

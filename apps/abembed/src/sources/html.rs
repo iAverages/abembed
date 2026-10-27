@@ -14,6 +14,8 @@ const MEDIA_GALLERY_ITEM_LIMIT: usize = 10;
 const OPEN_GRAPH_IMAGE_LIMIT: usize = 4;
 // discord drops the component embed when its json is over 3000 bytes
 const COMPONENT_EMBED_BYTE_LIMIT: usize = 3000;
+// description in the open graph tags
+const OPEN_GRAPH_DESCRIPTION_LIMIT: usize = 3500;
 
 type Stat = (&'static str, fn(&Stats) -> Option<u64>);
 
@@ -74,22 +76,27 @@ pub fn discord_image_post_html(
     site: &Site,
     embed: &EmbedPost,
     media_url: impl Fn(usize) -> String,
-    avatar_url: &str,
+    avatar_url: impl Fn(usize) -> String,
 ) -> String {
     let component_json = |description_limit: usize| {
         let mut components = Vec::new();
         let mut offset = 0;
         for (index, (label, post)) in embed.entries().enumerate() {
             if index > 0 {
-                components.push(json!({ "type": 14, "divider": true, "spacing": 1 }));
+                components.push(divider());
             }
+            let avatar = post
+                .author
+                .as_ref()
+                .and_then(|author| author.avatar_url.as_ref())
+                .map(|_| avatar_url(index));
             components.extend(post_components(
                 site,
                 label,
                 post,
                 description_limit,
                 |media_index| media_url(offset + media_index),
-                (index == 0).then_some(avatar_url),
+                avatar.as_deref(),
             ));
             offset += post.media.len();
         }
@@ -118,7 +125,7 @@ pub fn discord_image_post_html(
         .author
         .as_ref()
         .map_or(site.name.to_string(), author_name);
-    let meta = post_meta_tags(site, &author_name, &embed.source_url, embed, media_url);
+    let meta = post_meta_tags(site, &author_name, embed, media_url);
 
     format!(
         r#"<!doctype html><html><head><script id="discord:component-embed" type="application/json">{component}</script>{meta}</head><body><a href="{}">{}</a></body></html>"#,
@@ -133,13 +140,36 @@ fn post_components(
     post: &EmbedPost,
     description_limit: usize,
     media_url: impl Fn(usize) -> String,
-    avatar_url: Option<&str>,
+    avatar: Option<&str>,
 ) -> Vec<Value> {
+    // replied to and quoted posts have their text in a quote
+    let quoted = |text: String| match label {
+        Some(_) => text
+            .lines()
+            .map(|line| format!("> {line}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        None => text,
+    };
+
+    let mut components = Vec::new();
+    if let Some(translation) = &post.translation {
+        components.push(json!({
+            "type": 10,
+            "content": format!(
+                "**Translation ({})**\n{}",
+                translation.target_lang,
+                quoted(truncate(&translation.text, description_limit))
+            ),
+        }));
+        components.push(divider());
+    }
+
     let text = post
         .description
         .as_deref()
         .filter(|description| !description.is_empty())
-        .map(|description| link_tags(site, &truncate(description, description_limit)))
+        .map(|description| truncate(description, description_limit))
         .map(|text| match label {
             Some(_) => text
                 .lines()
@@ -157,25 +187,25 @@ fn post_components(
         .collect();
 
     let header = (!lines.is_empty()).then(|| json!({ "type": 10, "content": lines.join("\n") }));
-    let header = match post
-        .author
-        .as_ref()
-        .and_then(|author| author.avatar_url.as_ref())
-        .and(avatar_url)
-    {
-        Some(avatar_url) => header.map(|header| {
+    let header = match avatar {
+        Some(avatar) => header.map(|header| {
             json!({
                 "type": 9,
                 "components": [header],
-                "accessory": { "type": 11, "media": { "url": avatar_url } },
+                "accessory": { "type": 11, "media": { "url": avatar } },
             })
         }),
         None => header,
     };
-    let gallery: Vec<Value> = (0..post.media.len().min(MEDIA_GALLERY_ITEM_LIMIT))
-        .map(|index| json!({ "media": { "url": media_url(index) } }))
-        .collect();
-    let gallery = (!gallery.is_empty()).then(|| json!({ "type": 12, "items": gallery }));
+    components.extend(header);
+
+    if !post.media.is_empty() {
+        let gallery: Vec<Value> = (0..post.media.len().min(MEDIA_GALLERY_ITEM_LIMIT))
+            .map(|index| json!({ "media": { "url": media_url(index) } }))
+            .collect();
+        components.push(json!({ "type": 12, "items": gallery }));
+    }
+
     let stats = post.stats.clone().unwrap_or_default();
     let footer = site
         .stats
@@ -184,12 +214,12 @@ fn post_components(
         .chain([format!("[View on {}]({})", site.name, post.source_url)])
         .collect::<Vec<_>>()
         .join(" · ");
+    components.push(json!({ "type": 10, "content": footer }));
+    components
+}
 
-    header
-        .into_iter()
-        .chain(gallery)
-        .chain([json!({ "type": 10, "content": footer })])
-        .collect()
+fn divider() -> Value {
+    json!({ "type": 14, "divider": true, "spacing": 1 })
 }
 
 fn author_line(author: &Author) -> String {
@@ -216,7 +246,6 @@ fn author_line(author: &Author) -> String {
 fn post_meta_tags(
     site: &Site,
     author_name: &str,
-    url: &str,
     embed: &EmbedPost,
     media_url: impl Fn(usize) -> String,
 ) -> String {
@@ -226,12 +255,21 @@ fn post_meta_tags(
         meta_property("og:title", author_name),
         meta_property("twitter:title", author_name),
         meta_property("og:site_name", site.name),
-        meta_property("og:url", url),
+        meta_property("og:url", &embed.source_url),
         meta_name("author", author_name),
         meta_name("theme-color", &format!("#{:06X}", site.accent_color)),
     ];
+    if let Some(description) = embed
+        .description
+        .as_deref()
+        .filter(|description| !description.is_empty())
+    {
+        let description = truncate(description, OPEN_GRAPH_DESCRIPTION_LIMIT);
+        tags.push(meta_property("og:description", &description));
+        tags.push(meta_property("twitter:description", &description));
+    }
 
-    for (index, media) in embed.media.iter().enumerate().take(OPEN_GRAPH_IMAGE_LIMIT) {
+    for (index, media) in embed.all_media().enumerate().take(OPEN_GRAPH_IMAGE_LIMIT) {
         let url = media_url(index);
         let kind = match media.kind {
             MediaKind::Video => "video",
@@ -328,12 +366,15 @@ mod tests {
             author: None,
             media: Vec::new(),
             stats: None,
+            lang: None,
             reply_to: reply_to.map(Box::new),
+            quote: None,
+            translation: None,
         }
     }
 
     fn component_json(embed: &EmbedPost) -> String {
-        let body = discord_image_post_html(&SITE, embed, |_| String::new(), "");
+        let body = discord_image_post_html(&SITE, embed, |_| String::new(), |_| String::new());
         let (_, rest) = body.split_once(r#"type="application/json">"#).unwrap();
         rest.split_once("</script>").unwrap().0.to_string()
     }

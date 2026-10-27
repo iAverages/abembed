@@ -2,7 +2,7 @@
     "openapi": "3.1.0",
     "info": {
         "title": "abembed",
-        "description": "Embed proxy for Facebook, Instagram, TikTok and Reddit posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, other posts get a component embed. Reddit posts always get the component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
+        "description": "Embed proxy for Facebook, Instagram, TikTok, Reddit and X/Twitter posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, other posts get a component embed. Reddit and X/Twitter posts always get the component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
         "version": "1.0.0"
     },
     "servers": [{ "url": "https://staging.abembed.com" }],
@@ -10,7 +10,8 @@
         { "name": "facebook" },
         { "name": "instagram" },
         { "name": "tiktok" },
-        { "name": "reddit" }
+        { "name": "reddit" },
+        { "name": "twitter" }
     ],
     "paths": {
         "/facebook/{path}": {
@@ -480,6 +481,128 @@
                     "502": { "$ref": "#/components/responses/JsonError" }
                 }
             }
+        },
+        "/twitter/{username}/status/{id}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Embed for an X/Twitter status",
+                "description": "Always a component embed, with the text above the media. Replies include the post they reply to and quote posts include the quoted post.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter/{username}/status/{id}/{language}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Embed for an X/Twitter status with a translation",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/Language" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter/{username}/status/{id}/media/{index}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Redirect to one of a status's media",
+                "description": "Indexes continue into the replied to and quoted posts' media.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter/{username}/status/{id}/avatar": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Redirect to a status's author avatar",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter/{username}/status/{id}/avatar/{index}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Redirect to the avatar of the status, its replied to post or its quote",
+                "description": "`0` is the status, then the replied to and quoted posts in that order when present.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/twitter/{username}/status/{id}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "X/Twitter status json",
+                "description": "Includes `reply_to`, `quote` and `translation`, each `null` when absent.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/twitter/{username}/status/{id}/{language}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "X/Twitter status json with a translation",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/Language" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
         }
     },
     "components": {
@@ -562,6 +685,29 @@
                 "required": true,
                 "schema": { "type": "string", "pattern": "^[A-Za-z0-9]{4,32}$" },
                 "example": "egCtfVgUGJ"
+            },
+            "TwitterUsername": {
+                "name": "username",
+                "in": "path",
+                "required": true,
+                "description": "Any username works, the status id picks the post",
+                "schema": { "type": "string", "pattern": "^@?[A-Za-z0-9_]{1,15}$" },
+                "example": "jack"
+            },
+            "TwitterId": {
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+                "example": "20"
+            },
+            "Language": {
+                "name": "language",
+                "in": "path",
+                "required": true,
+                "description": "Language to translate the text into, e.g. `en` or `pt-br`",
+                "schema": { "type": "string", "pattern": "^[A-Za-z]{2,3}([-_][A-Za-z]{2,4})?$" },
+                "example": "en"
             }
         },
         "responses": {
@@ -609,7 +755,7 @@
                 "properties": {
                     "platform": {
                         "type": "string",
-                        "enum": ["facebook", "instagram", "tiktok", "reddit"]
+                        "enum": ["facebook", "instagram", "tiktok", "reddit", "twitter"]
                     },
                     "id": { "type": "string" },
                     "url": {
@@ -628,7 +774,38 @@
                     "media": {
                         "type": "array",
                         "items": { "$ref": "#/components/schemas/Media" }
+                    },
+                    "reply_to": {
+                        "description": "X/Twitter only, the post this one replies to",
+                        "oneOf": [
+                            { "$ref": "#/components/schemas/Post" },
+                            { "type": "null" }
+                        ]
+                    },
+                    "quote": {
+                        "description": "X/Twitter only, the quoted post",
+                        "oneOf": [
+                            { "$ref": "#/components/schemas/Post" },
+                            { "type": "null" }
+                        ]
+                    },
+                    "translation": {
+                        "description": "X/Twitter only, set when a language was requested and a translation was available",
+                        "oneOf": [
+                            { "$ref": "#/components/schemas/Translation" },
+                            { "type": "null" }
+                        ]
                     }
+                }
+            },
+            "Translation": {
+                "type": "object",
+                "required": ["text", "source_lang", "target_lang", "provider"],
+                "properties": {
+                    "text": { "type": "string" },
+                    "source_lang": { "type": "string", "description": "`und` when the platform did not say" },
+                    "target_lang": { "type": "string" },
+                    "provider": { "type": "string", "description": "`Grok` or `Workers AI`" }
                 }
             },
             "Author": {

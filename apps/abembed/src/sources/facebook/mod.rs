@@ -45,6 +45,7 @@ pub const ACCOUNT_FIELDS: AccountFields = AccountFields {
         "viewport-width",
         "dpr",
     ],
+    csrf_header: None,
 };
 
 const DESKTOP_HEADERS: [(&str, &str); 4] = [
@@ -87,7 +88,7 @@ async fn media(
         .and_then(|path| FacebookSource::new(path, uri.query()).ok());
 
     if let Some(source) = avatar {
-        return super::avatar(&env, &source).await;
+        return super::avatar(&env, &source, 0).await;
     }
 
     let source = FacebookSource::new(path, uri.query())?;
@@ -359,6 +360,7 @@ async fn resolve_with_account(
         &source.source_url(),
         &DESKTOP_HEADERS,
         RequestRedirect::Follow,
+        None,
         |response| classify_account_page(source, response),
     )
     .await
@@ -369,7 +371,13 @@ async fn album_owner(album: &str, providers: &Providers) -> Option<String> {
     // one random region, the page is the same everywhere
     let region = REGIONS[(js_sys::Math::random() * REGIONS.len() as f64) as usize];
     match providers
-        .fetch_raw(region, &url, &DESKTOP_HEADERS, RequestRedirect::Follow)
+        .fetch_raw(
+            region,
+            &url,
+            &DESKTOP_HEADERS,
+            RequestRedirect::Follow,
+            None,
+        )
         .await
     {
         Ok(response) => ALBUM_OWNER_PATTERN

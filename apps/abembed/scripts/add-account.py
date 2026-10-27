@@ -24,7 +24,12 @@ ENVS = {
     "staging": "https://staging.abembed.com",
     "prod": "https://abembed.com",
 }
-PLATFORMS = {"facebook.com": "facebook", "instagram.com": "instagram"}
+PLATFORMS = {
+    "facebook.com": "facebook",
+    "instagram.com": "instagram",
+    "x.com": "twitter",
+    "twitter.com": "twitter",
+}
 REGIONS = "abcd"
 
 

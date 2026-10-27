@@ -15,17 +15,19 @@ use sources::{
     is_platform_host,
     reddit::{self, RedditSource},
     tiktok::{self, TikTokSource},
+    twitter::{self, TwitterSource},
     Source,
 };
 use tower_http::normalize_path::NormalizePath;
 use tower_service::Service;
 use worker::*;
 
-const PLATFORM_HOSTS: [(&[&str], &str); 4] = [
+const PLATFORM_HOSTS: [(&[&str], &str); 5] = [
     (InstagramSource::HOSTS, InstagramSource::PLATFORM),
     (FacebookSource::HOSTS, FacebookSource::PLATFORM),
     (TikTokSource::HOSTS, TikTokSource::PLATFORM),
     (RedditSource::HOSTS, RedditSource::PLATFORM),
+    (TwitterSource::HOSTS, TwitterSource::PLATFORM),
 ];
 
 // routes that are the same on every domain
@@ -41,6 +43,7 @@ fn router(env: Env) -> Router {
         .merge(instagram::get_router())
         .merge(tiktok::get_router())
         .merge(reddit::get_router())
+        .merge(twitter::get_router())
         .merge(admin::get_router())
         .with_state(env)
 }
