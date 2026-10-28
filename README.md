@@ -1,4 +1,3 @@
-# spqtify.com
+# abembed
 
-spotify preview embeds, anywhere
-
+Discord embed link fixer for spotify, tiktok, twitter, instagram, facebook
