@@ -5,7 +5,8 @@ workers_dev = false
 preview_urls = false
 
 [build]
-command = "worker-build --release --panic-unwind"
+# ci deploys the `build/` directory from `nix build .#providerWorker`
+command = "[ -n \"$WORKER_PREBUILT\" ] || worker-build --release --panic-unwind"
 
 [observability]
 enabled = true

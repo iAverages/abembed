@@ -3,7 +3,8 @@ main = "build/index.js"
 compatibility_date = "2026-09-13"
 
 [build]
-command = "worker-build --release --panic-unwind"
+# ci deploys the `build/` directory from `nix build .#abembedWorker`
+command = "[ -n \"$WORKER_PREBUILT\" ] || worker-build --release --panic-unwind"
 
 [observability]
 enabled = true

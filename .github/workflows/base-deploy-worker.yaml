@@ -34,6 +34,9 @@ jobs:
         with:
           server-url: https://niks3.kirsi.dev
           skip-push: ${{ github.ref != 'refs/heads/main' }}
+      # the lint job builds the same derivation and pushes it, so this is usually a cache pull
+      - name: Build
+        run: nix build .#${{ inputs.app }}Worker --out-link apps/${{ inputs.app }}/build
       - name: Deploy
         shell: bash
         working-directory: apps/${{ inputs.app }}
@@ -42,6 +45,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_ENVS: ${{ inputs.wrangler_envs }}
           D1_BINDING: ${{ inputs.d1_binding }}
+          WORKER_PREBUILT: "1"
         run: |
           set -euo pipefail
 

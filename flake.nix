@@ -40,6 +40,7 @@
             "rust-analyzer"
           ];
         });
+      rustNightlySrc = pkgs.rust-bin.selectLatestNightlyWith (t: t.rust-src);
       devCraneLib = craneLib.overrideToolchain rustNightly;
       # worker-build runs `cargo +nightly`, `rustc +nightly` and asks rustup whether rust-src
       # is installed, so point all of that at the pinned nightly instead of rustup.
@@ -70,7 +71,67 @@
         buildInputs = [pkgs.openssl];
         doCheck = false;
       });
-      src = craneLib.cleanCargoSource ./.;
+      src = lib.cleanSourceWith {
+        src = ./.;
+        # json files are not in cranes default fitler
+        filter = path: type: lib.hasSuffix ".json" path || craneLib.filterCargoSources path type;
+      };
+
+      wasmBindgenCli = pkgs.buildWasmBindgenCli rec {
+        src = pkgs.fetchCrate {
+          pname = "wasm-bindgen-cli";
+          version = "0.2.128";
+          hash = "sha256-a7lcXJnnZkYReja+iUO7NqqrWyv3toxnUgQb8s4IS5s=";
+        };
+        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+          inherit src;
+          inherit (src) pname version;
+          hash = "sha256-R1Tas33Ursy8kqsxguAkG0ZhNed2n5uFTAhw1l2qlLY=";
+        };
+      };
+
+      workerVendorDir = devCraneLib.vendorMultipleCargoDeps {
+        cargoLockList = [./Cargo.lock];
+        cargoLockContentsList = [
+          (builtins.readFile "${rustNightlySrc}/lib/rustlib/src/rust/library/Cargo.lock")
+        ];
+      };
+
+      # the `build/` directory wrangler deploys, built offline. worker-build downloads esbuild,
+      # wasm-opt and wasm-bindgen unless the *_BIN variables point it at binaries. Dependencies
+      # are compiled in their own derivation with the exact cargo flags worker-build uses, so
+      # source changes only rebuild the crate
+      mkWorker = app: unwind: let
+        workerArgs = {
+          pname = "${app}-worker";
+          version = gitTag;
+          inherit src;
+          cargoVendorDir = workerVendorDir;
+          nativeBuildInputs = [nightlyShims];
+          WASM_BINDGEN_USE_JS_SYS = "1";
+        };
+        buildStd = lib.optionalString unwind " -Z build-std=std,panic_unwind";
+        cargoArtifacts = devCraneLib.buildDepsOnly (workerArgs
+          // {
+            buildPhaseCargoCommand = "cargo build --release --lib -p ${app} --target wasm32-unknown-unknown${buildStd}";
+            doCheck = false;
+          }
+          // lib.optionalAttrs unwind {RUSTFLAGS = "-Cpanic=unwind";});
+      in
+        devCraneLib.mkCargoDerivation (workerArgs
+          // {
+            inherit cargoArtifacts;
+            doInstallCargoArtifacts = false;
+            nativeBuildInputs = workerArgs.nativeBuildInputs ++ [workerBuild];
+            ESBUILD_BIN = "${pkgs.esbuild}/bin/esbuild";
+            WASM_OPT_BIN = "${pkgs.binaryen}/bin/wasm-opt";
+            WASM_BINDGEN_BIN = "${wasmBindgenCli}/bin/wasm-bindgen";
+            buildPhaseCargoCommand = "(cd apps/${app} && worker-build --release${lib.optionalString unwind " --panic-unwind"})";
+            installPhaseCommand = "cp -r apps/${app}/build $out";
+          });
+      abembedWorker = mkWorker "abembed" true;
+      providerWorker = mkWorker "provider" true;
+      proxyWorker = mkWorker "proxy" false;
 
       commonRustArgs = {
         inherit src;
@@ -141,7 +202,7 @@
       inherit (embedImageServicePackages) embedImageService embedImageServiceDockerImage;
     in {
       checks = {
-        inherit api embedImageService gifService;
+        inherit api embedImageService gifService abembedWorker providerWorker proxyWorker;
 
         workspace-clippy = craneLib.cargoClippy (
           commonRustArgs
@@ -193,7 +254,7 @@
         };
 
       packages = {
-        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage;
+        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage abembedWorker providerWorker proxyWorker;
       };
     });
 }

@@ -3,7 +3,8 @@ main = "build/index.js"
 compatibility_date = "2026-10-01"
 
 [build]
-command = "worker-build --release"
+# ci deploys the `build/` directory from `nix build .#proxyWorker`
+command = "[ -n \"$WORKER_PREBUILT\" ] || worker-build --release"
 
 [vars]
 ALLOWED_HOSTS = "tiktokcdn.com,tiktokcdn-us.com,tiktokv.com,tiktokcdn-eu.com,fbcdn.net"
