@@ -72,9 +72,11 @@
       });
       src = lib.cleanSourceWith {
         src = ./.;
-        # json files are not in cranes default fitler
-        filter = path: type: lib.hasSuffix ".json" path || lib.hasSuffix ".mp4" path || craneLib.filterCargoSources path type;
+        filter = path: type: lib.any (ext: lib.hasSuffix ".${ext}" path) extraSrcExtensions || craneLib.filterCargoSources path type;
       };
+
+      # these extensions are not in cranes default fitler
+      extraSrcExtensions = ["mp4" "json" "html"];
 
       wasmBindgenCli = pkgs.buildWasmBindgenCli rec {
         src = pkgs.fetchCrate {
