@@ -73,7 +73,7 @@
       src = lib.cleanSourceWith {
         src = ./.;
         # json files are not in cranes default fitler
-        filter = path: type: lib.hasSuffix ".json" path || craneLib.filterCargoSources path type;
+        filter = path: type: lib.hasSuffix ".json" path || lib.hasSuffix ".mp4" path || craneLib.filterCargoSources path type;
       };
 
       wasmBindgenCli = pkgs.buildWasmBindgenCli rec {
