@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex">
+    <title>Opening Spotify...</title>
+    <noscript>
+        <meta http-equiv="refresh" content="0;url=__WEB_ATTR__">
+    </noscript>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: grid;
+            place-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #121212;
+            color: #fff
+        }
+
+        a {
+            color: #1db954
+        }
+    </style>
+</head>
+
+<body>
+    <p>Opening Spotify... <a href="__WEB_ATTR__">Continue in browser</a></p>
+    <script>
+        const web = __WEB_JS__;
+        let timer;
+        let dialogDismissed = false;
+        const resetTimer = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => {location.replace(web);}, 2000);
+        }
+        addEventListener("blur", () => {
+            clearTimeout(timer);
+            if (dialogDismissed) window.close();
+        });
+        addEventListener("focus", () => {dialogDismissed = true; resetTimer();});
+        if (document.hasFocus()) resetTimer();
+        location.href = __APP_URI_JS__;
+    </script>
+</body>
+
+</html>

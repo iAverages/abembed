@@ -85,7 +85,7 @@ async fn get_collection_page(
         state
             .analytics
             .spotify_redirect(collection_kind.path_segment(), "collection_page");
-        return Ok(Redirect::temporary(&redirect_url).into_response());
+        return Ok(spotify_open_response(&redirect_url));
     }
 
     let collection_data = state
@@ -172,7 +172,7 @@ pub async fn get_track_page(
         );
         let redirect_url = format!("https://open.spotify.com/track/{track_id}");
         state.analytics.spotify_redirect("track", "track_page");
-        return Ok(Redirect::temporary(&redirect_url).into_response());
+        return Ok(spotify_open_response(&redirect_url));
     }
 
     let spotify_data = state
@@ -272,7 +272,7 @@ pub async fn get_episode_page(
         );
         let redirect_url = format!("https://open.spotify.com/episode/{episode_id}");
         state.analytics.spotify_redirect("episode", "episode_page");
-        return Ok(Redirect::temporary(&redirect_url).into_response());
+        return Ok(spotify_open_response(&redirect_url));
     }
 
     let spotify_data = state
@@ -351,7 +351,7 @@ pub async fn get_fallback_redirect(State(state): State<AppState>, uri: Uri) -> i
     state
         .analytics
         .spotify_redirect(fallback_media_type(&uri), "fallback");
-    Redirect::temporary(&build_passthrough_redirect(
+    spotify_open_response(&build_passthrough_redirect(
         &uri,
         "",
         "https://open.spotify.com",
@@ -550,6 +550,45 @@ pub fn build_passthrough_redirect(uri: &Uri, route_prefix: &str, target_base: &s
     }
 
     redirect_url
+}
+
+fn spotify_open_response(web_url: &str) -> Response {
+    let Some(app_uri) = spotify_app_uri(web_url) else {
+        return Redirect::temporary(web_url).into_response();
+    };
+
+    let block = include_str!("spotify_open.html")
+        .replace("__WEB_ATTR__", &escape_html_attribute(web_url))
+        .replace(
+            "__WEB_JS__",
+            &serde_json::to_string(web_url).expect("string serializes"),
+        )
+        .replace(
+            "__APP_URI_JS__",
+            &serde_json::to_string(&app_uri).expect("string serializes"),
+        );
+
+    AxumHtml(block).into_response()
+}
+
+fn spotify_app_uri(web_url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(web_url).ok()?;
+    let mut segments = url.path_segments()?.filter(|segment| !segment.is_empty());
+    let mut kind = segments.next()?;
+    if kind.starts_with("intl-") {
+        kind = segments.next()?;
+    }
+    let id = segments.next()?;
+    if segments.next().is_some()
+        || !matches!(
+            kind,
+            "track" | "album" | "playlist" | "episode" | "artist" | "show"
+        )
+        || !id.chars().all(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(format!("spotify:{kind}:{id}"))
 }
 
 fn is_discord_request(headers: &HeaderMap) -> bool {
@@ -860,11 +899,37 @@ mod tests {
         ComponentEmbedDetails, append_query, build_collection_video_id, build_component_embed_json,
         build_component_subtitle, build_passthrough_redirect, build_preview_meta_page,
         collection_video_id_prefix, collection_video_variant_suffix, fallback_media_type,
-        spotify_collection_url,
+        spotify_app_uri, spotify_collection_url,
     };
     use crate::embeds::VideoKind;
     use crate::embeds::spotify_metadata::{SpotifyCollectionKind, SpotifyPreviewMetadata};
     use axum::http::Uri;
+
+    #[test]
+    fn spotify_app_uri_maps_known_media_urls() {
+        assert_eq!(
+            spotify_app_uri("https://open.spotify.com/track/abc123?si=xyz").as_deref(),
+            Some("spotify:track:abc123")
+        );
+        assert_eq!(
+            spotify_app_uri("https://open.spotify.com/intl-de/album/abc123").as_deref(),
+            Some("spotify:album:abc123")
+        );
+    }
+
+    #[test]
+    fn spotify_app_uri_rejects_unknown_or_nested_paths() {
+        assert_eq!(spotify_app_uri("https://open.spotify.com/"), None);
+        assert_eq!(spotify_app_uri("https://open.spotify.com/search/abc"), None);
+        assert_eq!(
+            spotify_app_uri("https://open.spotify.com/user/x/playlist/y"),
+            None
+        );
+        assert_eq!(
+            spotify_app_uri("https://open.spotify.com/track/abc<script>"),
+            None
+        );
+    }
 
     #[test]
     fn passthrough_redirect_keeps_wildcard_and_query() {
