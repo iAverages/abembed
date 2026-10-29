@@ -15,10 +15,11 @@ use self::embeds::preview_generation::PreviewGeneration;
 use self::embeds::renderer::FfmpegRenderer;
 use self::embeds::spotify_metadata::SpotifyMetadataClient;
 use self::embeds::video_source::B2VideoSource;
-use axum::Router;
-use axum::http::HeaderValue;
-use axum::http::StatusCode;
+use axum::extract::Request;
+use axum::http::uri::PathAndQuery;
+use axum::http::{HeaderValue, StatusCode, Uri};
 use axum::routing::get;
+use axum::{Router, ServiceExt};
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use backblaze_b2_client::client::B2Client;
 use init_tracing_opentelemetry::{LogTimer, TracingConfig};
@@ -29,6 +30,8 @@ use std::time::Duration;
 use tokio::fs::{self};
 use tokio::signal;
 use tokio::task;
+use tower::Layer;
+use tower::util::MapRequestLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
@@ -167,10 +170,11 @@ async fn main() {
         .layer(OtelAxumLayer::default())
         .layer(cors)
         .with_state(state.clone());
+    let app = MapRequestLayer::new(strip_intl_prefix).layer(app);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     tracing::info!("listening on :3000");
-    axum::serve(listener, app)
+    axum::serve(listener, ServiceExt::<Request>::into_make_service(app))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
@@ -259,5 +263,44 @@ async fn cache_upload_existing_tmp(
             let _ = fs::remove_dir_all(renderer.track_output_path(track_id)).await;
             tracing::debug!("deleted tmp directory for {}", track_id);
         }
+    }
+}
+
+fn strip_intl_prefix(mut request: Request) -> Request {
+    let uri = request.uri();
+    let Some(rest) = uri.path().strip_prefix("/intl-") else {
+        return request;
+    };
+    let path = rest.find('/').map_or("/", |slash| &rest[slash..]);
+    let path_and_query = match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_string(),
+    };
+    let mut parts = uri.clone().into_parts();
+    parts.path_and_query = Some(PathAndQuery::from_maybe_shared(path_and_query).unwrap());
+    *request.uri_mut() = Uri::from_parts(parts).unwrap();
+    request
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rewritten(path: &str) -> String {
+        let request = Request::builder()
+            .uri(path)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        strip_intl_prefix(request).uri().to_string()
+    }
+
+    #[test]
+    fn strips_intl_prefix_and_keeps_query() {
+        assert_eq!(rewritten("/intl-de/track/abc?si=x"), "/track/abc?si=x");
+        assert_eq!(rewritten("/intl-pt-br/album/abc"), "/album/abc");
+        assert_eq!(rewritten("/track/abc"), "/track/abc");
+        // spotify redirects here anyway
+        assert_eq!(rewritten("/intl-de"), "/");
+        assert_eq!(rewritten("/intl-de/"), "/");
     }
 }
