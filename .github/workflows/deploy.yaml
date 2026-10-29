@@ -1,4 +1,4 @@
-name: Deploy Workers
+name: Deploy
 on:
   push:
     branches: ["main", "staging"]
@@ -6,12 +6,16 @@ on:
 permissions:
   contents: read
   id-token: write
+  packages: write
 
 concurrency:
-  group: deploy-workers-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  checks:
+    uses: ./.github/workflows/checks.yaml
+
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -38,7 +42,7 @@ jobs:
               - apps/proxy/**
 
   provider:
-    needs: changes
+    needs: [checks, changes]
     if: github.ref_name == 'main' && needs.changes.outputs.provider == 'true'
     uses: ./.github/workflows/base-deploy-worker.yaml
     with:
@@ -48,8 +52,8 @@ jobs:
     secrets: inherit
 
   abembed:
-    needs: [changes, provider]
-    if: ${{ !cancelled() && needs.changes.outputs.abembed == 'true' && needs.provider.result != 'failure' }}
+    needs: [checks, changes, provider]
+    if: ${{ !cancelled() && needs.checks.result == 'success' && needs.changes.outputs.abembed == 'true' && needs.provider.result != 'failure' }}
     uses: ./.github/workflows/base-deploy-worker.yaml
     with:
       app: abembed
@@ -59,11 +63,40 @@ jobs:
     secrets: inherit
 
   proxy:
-    needs: changes
+    needs: [checks, changes]
     if: github.ref_name == 'main' && needs.changes.outputs.proxy == 'true'
     uses: ./.github/workflows/base-deploy-worker.yaml
     with:
       app: proxy
       wrangler_envs: production
       environment: production
+    secrets: inherit
+
+  # todo: only build and publish if had changes
+  containers:
+    needs: checks
+    if: github.ref_name == 'main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: api
+            deployment_name: spqtify.com/api
+            nix_image_attr: apiDockerImage
+            version_key: apiVersion
+          - app: embed-image-service
+            deployment_name: spqtify.com/embed-image-service
+            nix_image_attr: embedImageServiceDockerImage
+            version_key: embedImageServiceVersion
+          - app: gif-service
+            deployment_name: abembed/gif-service
+            nix_image_attr: gifServiceDockerImage
+            version_key: gifServiceVersion
+    uses: ./.github/workflows/base-publish.yaml
+    with:
+      environment: production
+      nix_image_attr: ${{ matrix.nix_image_attr }}
+      deployment_name: ${{ matrix.deployment_name }}
+      argo_deployments_path: "helm/spqtify.com/values/production.yaml"
+      version_key: ${{ matrix.version_key }}
     secrets: inherit

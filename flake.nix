@@ -31,7 +31,7 @@
             ];
           }
       );
-      # worker-build --panic-unwind rebuilds std, which needs nightly.
+
       rustNightly = pkgs.rust-bin.selectLatestNightlyWith (t:
         t.default.override {
           targets = ["wasm32-unknown-unknown"];
@@ -42,8 +42,7 @@
         });
       rustNightlySrc = pkgs.rust-bin.selectLatestNightlyWith (t: t.rust-src);
       devCraneLib = craneLib.overrideToolchain rustNightly;
-      # worker-build runs `cargo +nightly`, `rustc +nightly` and asks rustup whether rust-src
-      # is installed, so point all of that at the pinned nightly instead of rustup.
+
       nightlyShims = pkgs.symlinkJoin {
         name = "nightly-shims";
         paths =
@@ -54,7 +53,7 @@
             '') ["cargo" "rustc"]
           ++ [(pkgs.writeShellScriptBin "rustup" "echo 'rust-src (installed)'")];
       };
-      # nixpkgs only packages worker-build 0.7, which can't build `worker` 0.8 crates or --panic-unwind.
+
       workerBuild = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
         pname = "worker-build";
         version = "0.8.7";
@@ -97,14 +96,9 @@
         ];
       };
 
-      # the `build/` directory wrangler deploys, built offline. worker-build downloads esbuild,
-      # wasm-opt and wasm-bindgen unless the *_BIN variables point it at binaries. Dependencies
-      # are compiled in their own derivation with the exact cargo flags worker-build uses, so
-      # source changes only rebuild the crate
       mkWorker = app: unwind: let
         workerArgs = {
           pname = "${app}-worker";
-          version = gitTag;
           inherit src;
           cargoVendorDir = workerVendorDir;
           nativeBuildInputs = [nightlyShims];
@@ -120,6 +114,7 @@
       in
         devCraneLib.mkCargoDerivation (workerArgs
           // {
+            version = gitTag;
             inherit cargoArtifacts;
             doInstallCargoArtifacts = false;
             nativeBuildInputs = workerArgs.nativeBuildInputs ++ [workerBuild];
@@ -189,7 +184,7 @@
 
       embedImageServicePnpmDeps = pkgs.fetchPnpmDeps {
         pname = "embed-image-service";
-        version = gitTag; #"0.1.0";
+        version = "0.1.0";
         src = embedImageServiceSrc;
         fetcherVersion = 3;
         hash = "sha256-llxysmPg44mu87bM4/UUHlIHbayPXpIBm4DDNWWIDiQ=";
