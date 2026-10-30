@@ -23,7 +23,7 @@ jobs:
       provider: ${{ steps.filter.outputs.provider }}
       proxy: ${{ steps.filter.outputs.proxy }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         id: filter
         with:
