@@ -1,17 +1,17 @@
 {
   "name": "spqtify",
   "private": true,
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@10.34.9",
   "scripts": {
     "dev": "mprocs -c mprocs.yaml",
     "build": "turbo build",
     "check": "turbo check"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.14",
-    "@effect/language-service": "^0.85.1",
-    "@types/node": "25.6.0",
-    "@typescript/native-preview": "7.0.0-dev.20260503.1",
-    "turbo": "2.9.8"
+    "@biomejs/biome": "2.6.4",
+    "@effect/language-service": "^0.87.0",
+    "@types/node": "25.9.9",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "turbo": "2.11.10"
   }
 }
