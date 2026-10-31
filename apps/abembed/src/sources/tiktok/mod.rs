@@ -156,7 +156,10 @@ impl TikTokSource {
         let post_type = ["video", "photo"]
             .into_iter()
             .find(|known| *known == post_type);
-        let valid = sized(username, 2..=24, |byte| {
+
+        // tiktok is special and doesnt care about the username, and some
+        // shortlinks resolve to `/@/videos/<id>`. allow empty username
+        let valid = sized(username, 0..=24, |byte| {
             byte.is_ascii_alphanumeric() || b"._".contains(&byte)
         }) && sized(id, 5..=30, |byte| byte.is_ascii_digit());
 
@@ -297,6 +300,7 @@ mod tests {
             "https://www.tiktok.com/@kopilawak/video/7665179028352945426",
             "https://www.tiktok.com/@evenifiam/photo/7666981398800108813?_r=1&_t=ZN-98PYXxrluUw",
             "https://tiktok.com/@some.user_1/video/7665179028352945426/",
+            "https://www.tiktok.com/@/video/7447107620265004318?_r=1&utm_source=short_fallback",
         ] {
             assert!(TikTokSource::from_url(link).is_ok(), "{link}");
         }
