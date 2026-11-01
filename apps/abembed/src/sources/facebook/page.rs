@@ -2,7 +2,8 @@
 
 use super::{is_name, FacebookSource};
 use crate::sources::{
-    bad_gateway, objects, Author, EmbedPost, HttpError, Media, MediaKind, Source, Stats,
+    bad_gateway, merged_video_url, objects, Author, EmbedPost, HttpError, Media, MediaKind, Source,
+    Stats,
 };
 use regex::Regex;
 use scraper::{Html, Selector};
@@ -47,9 +48,6 @@ const FORMAT_KEYS: [&str; 8] = [
     "dash_manifest",
     "dash_manifest_xml_string",
 ];
-
-// merges the separate dash video and audio streams, see apps/proxy
-const MERGE_PROXY_URL: &str = "https://proxy.abembed.com/merge";
 
 impl FacebookSource {
     pub(super) fn embed_from_html(&self, html: &str) -> Result<EmbedPost, HttpError> {
@@ -269,12 +267,6 @@ fn photos(attachments: &[&Value]) -> Result<Vec<Media>, HttpError> {
         .map(|(_, url)| cdn_url(url).map(image))
         .collect::<Option<Vec<_>>>()
         .ok_or_else(not_cdn)
-}
-
-fn merged_video_url(video: &str, audio: &str) -> String {
-    Url::parse_with_params(MERGE_PROXY_URL, [("video", video), ("audio", audio)])
-        .unwrap()
-        .to_string()
 }
 
 fn relay_blobs(html: &str) -> impl Iterator<Item = &str> {

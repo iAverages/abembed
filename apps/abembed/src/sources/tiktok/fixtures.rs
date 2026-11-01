@@ -7,6 +7,8 @@ pub const PHOTO_ID: &str = "7666981398800108813";
 pub const WEBAPP_VIDEO_URL: &str =
     "https://v16-webapp-prime.tiktok.com/video/tos/no1a/video/?mime_type=video_mp4";
 pub const AWEME_PLAY_URL: &str = "https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=37a4&is_play_url=1&item_id=7665179028352945426&video_id=v24044";
+pub const DASH_PLAY_URL: &str = "https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=d2f2&is_play_url=1&item_id=7665179028352945426";
+pub const DASH_AUDIO_PLAY_URL: &str = "https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=2119&is_play_url=1&item_id=7665179028352945426";
 pub const EMBED_VIDEO_URL: &str = "https://v45.tiktokcdn-eu.com/video.mp4?mime_type=video_mp4";
 pub const IMAGE_ONE: &str =
     "https://p16-common-sign.tiktokcdn-eu.com/first.jpeg?x-expires=1785416400";
@@ -24,6 +26,17 @@ pub fn script(id: &str, value: Value) -> String {
 }
 
 pub fn video_page() -> String {
+    video_page_with_audio(json!([
+        { "Bitrate": 33726, "UrlList": { "FallbackUrl": "https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=b327&item_id=7665179028352945426" } },
+        { "Bitrate": 49656, "UrlList": { "FallbackUrl": DASH_AUDIO_PLAY_URL } },
+    ]))
+}
+
+pub fn video_page_without_audio() -> String {
+    video_page_with_audio(Value::Null)
+}
+
+fn video_page_with_audio(audio: Value) -> String {
     script(
         "__UNIVERSAL_DATA_FOR_REHYDRATION__",
         json!({ "__DEFAULT_SCOPE__": { "webapp.video-detail": { "itemInfo": { "itemStruct": {
@@ -36,7 +49,11 @@ pub fn video_page() -> String {
                 "height": 1280,
                 "duration": 22,
                 "playAddr": WEBAPP_VIDEO_URL,
-                "bitrateInfo": [{ "PlayAddr": { "UrlList": [WEBAPP_VIDEO_URL, AWEME_PLAY_URL] } }],
+                "bitrateInfo": [
+                    { "Format": "mp4", "Bitrate": 409572, "PlayAddr": { "Width": 720, "Height": 1280, "UrlList": [WEBAPP_VIDEO_URL, AWEME_PLAY_URL] } },
+                    { "Format": "dash", "Bitrate": 708911, "PlayAddr": { "Width": 1080, "Height": 1920, "UrlList": [WEBAPP_VIDEO_URL, DASH_PLAY_URL] } },
+                ],
+                "bitrateAudioInfo": audio,
             },
         } } } } }),
     )

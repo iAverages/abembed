@@ -3,8 +3,8 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, get_cached, html::Site, post_cache, put_cached, redirect, redirects_browser, warn,
-    EmbedPost, HttpError, Providers, Source,
+    bad_request, get_cached, html::Site, merged_video_url, post_cache, put_cached, redirect,
+    redirects_browser, warn, EmbedPost, HttpError, Providers, Source,
 };
 use axum::{
     extract::{Path, State},
@@ -199,21 +199,30 @@ impl TikTokSource {
     }
 
     async fn resolve_video_page(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
-        let mut embed = providers
+        let (mut embed, audio) = providers
             .fetch(&self.source_url(), &HTML_HEADERS, |html| {
                 self.video_from_page(html)
             })
             .await?;
         let video = &mut embed.media[0];
-        if video.url.starts_with(&format!("https://{APP_PLAY_HOST}/")) {
-            video.url = providers
-                .fetch_redirect(&video.url, &APP_HEADERS, cdn_url)
-                .await?;
-        }
-        video.url = proxied_video_url(&video.url);
+        let video_url = resolve_play_url(providers, &video.url).await?;
+        video.url = match audio {
+            Some(audio) => {
+                merged_video_url(&video_url, &resolve_play_url(providers, &audio).await?)
+            }
+            None => proxied_video_url(&video_url),
+        };
 
         Ok(embed)
     }
+}
+
+// the app play host redirects to the cdn file
+async fn resolve_play_url(providers: &Providers, url: &str) -> Result<String, HttpError> {
+    if !url.starts_with(&format!("https://{APP_PLAY_HOST}/")) {
+        return Ok(url.to_string());
+    }
+    providers.fetch_redirect(url, &APP_HEADERS, cdn_url).await
 }
 
 impl Source for TikTokSource {

@@ -191,6 +191,15 @@ pub fn cdn_url(url: &str, domains: &[&str]) -> Option<String> {
     (url.scheme() == "https" && allowed).then(|| url.to_string())
 }
 
+// merges the separate dash video and audio streams, see apps/proxy
+const MERGE_PROXY_URL: &str = "https://proxy.abembed.com/merge";
+
+pub fn merged_video_url(video: &str, audio: &str) -> String {
+    Url::parse_with_params(MERGE_PROXY_URL, [("video", video), ("audio", audio)])
+        .unwrap()
+        .to_string()
+}
+
 pub fn redirect(location: &str) -> Response {
     (
         StatusCode::FOUND,

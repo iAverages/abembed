@@ -10,7 +10,11 @@ use worker::Url;
 const VIDEO_PROXY_URL: &str = "https://proxy.abembed.com/video";
 
 impl TikTokSource {
-    pub(super) fn video_from_page(&self, html: &str) -> Result<EmbedPost, HttpError> {
+    // the video with, for dash streams, the separate audio the proxy merges in
+    pub(super) fn video_from_page(
+        &self,
+        html: &str,
+    ) -> Result<(EmbedPost, Option<String>), HttpError> {
         let item = script_json(html, "__UNIVERSAL_DATA_FOR_REHYDRATION__")
             .and_then(|json| {
                 json.pointer("/__DEFAULT_SCOPE__/webapp.video-detail/itemInfo/itemStruct")
@@ -22,21 +26,40 @@ impl TikTokSource {
         }
 
         let video = &item["video"];
-        let bitrate_urls: Vec<&str> = video["bitrateInfo"]
+        let mut bitrates: Vec<&Value> = video["bitrateInfo"]
             .as_array()
             .into_iter()
             .flatten()
-            .flat_map(|bitrate| urls(&bitrate["PlayAddr"]["UrlList"]))
             .collect();
-        let url = bitrate_urls
+        bitrates.sort_by_key(|bitrate| std::cmp::Reverse(quality(bitrate)));
+        // dash entries are video only, their audio is a separate stream
+        let dash_audio = video["bitrateAudioInfo"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .max_by_key(|audio| count(&audio["Bitrate"]))
+            .and_then(|audio| app_play_url(audio["UrlList"]["FallbackUrl"].as_str()?));
+        let (url, audio) = bitrates
             .iter()
-            .find_map(|url| app_play_url(url))
+            .filter(|bitrate| bitrate["Format"] != "dash" || dash_audio.is_some())
+            .find_map(|bitrate| {
+                let url = urls(&bitrate["PlayAddr"]["UrlList"])
+                    .into_iter()
+                    .find_map(app_play_url)?;
+                let audio = dash_audio.clone().filter(|_| bitrate["Format"] == "dash");
+                Some((url, audio))
+            })
             .or_else(|| {
-                urls(&video["playAddr"])
+                let url = urls(&video["playAddr"])
                     .into_iter()
                     .chain(urls(&video["downloadAddr"]))
-                    .chain(bitrate_urls.iter().copied())
-                    .find_map(cdn_url)
+                    .chain(
+                        bitrates
+                            .iter()
+                            .flat_map(|bitrate| urls(&bitrate["PlayAddr"]["UrlList"])),
+                    )
+                    .find_map(cdn_url)?;
+                Some((url, None))
             })
             .ok_or_else(|| bad_gateway("TikTok page did not include a direct video URL"))?;
         let stats = if item["stats"].is_object() {
@@ -45,11 +68,14 @@ impl TikTokSource {
             &item["statsV2"]
         };
 
-        Ok(self.embed(
-            &item["desc"],
-            &item["author"],
-            stats,
-            vec![new_media(MediaKind::Video, url, video)],
+        Ok((
+            self.embed(
+                &item["desc"],
+                &item["author"],
+                stats,
+                vec![new_media(MediaKind::Video, url, video)],
+            ),
+            audio,
         ))
     }
 
@@ -178,6 +204,13 @@ fn urls(value: &Value) -> Vec<&str> {
     }
 }
 
+// highest resolution first, then highest bitrate
+fn quality(bitrate: &Value) -> (u64, u64) {
+    let addr = &bitrate["PlayAddr"];
+    let pixels = count(&addr["Width"]).unwrap_or(0) * count(&addr["Height"]).unwrap_or(0);
+    (pixels, count(&bitrate["Bitrate"]).unwrap_or(0))
+}
+
 fn new_media(kind: MediaKind, url: String, meta: &Value) -> Media {
     let dimension = |key: &str| count(&meta[key]).and_then(|value| u32::try_from(value).ok());
 
@@ -248,7 +281,7 @@ mod tests {
 
     #[test]
     fn extracts_video_page_with_app_play_url() {
-        let embed = source("video", VIDEO_ID)
+        let (embed, _) = source("video", VIDEO_ID)
             .video_from_page(&video_page())
             .unwrap();
         let video = &embed.media[0];
@@ -262,6 +295,8 @@ mod tests {
         assert_eq!(query["faid"], "1233");
         assert_eq!(query["source"], "FEED");
         assert_eq!(query["item_id"], VIDEO_ID);
+        // the 1080p dash entry beats the 720p mp4 listed before it
+        assert_eq!(query["file_id"], "d2f2");
         assert_eq!((video.width, video.height), (Some(720), Some(1280)));
         assert_eq!(embed.description.as_deref(), Some("Coffee time"));
         assert_eq!(author.display_name.as_deref(), Some("Kopi Lawak"));
@@ -270,6 +305,31 @@ mod tests {
             (stats.likes, stats.shares, stats.comments, stats.views),
             (Some(21), Some(5), Some(8), Some(100))
         );
+    }
+
+    #[test]
+    fn pairs_dash_video_with_its_best_audio_stream() {
+        let (_, audio) = source("video", VIDEO_ID)
+            .video_from_page(&video_page())
+            .unwrap();
+        let audio = Url::parse(&audio.unwrap()).unwrap();
+        let query: BTreeMap<_, _> = audio.query_pairs().into_owned().collect();
+
+        assert_eq!(audio.host_str(), Some(APP_PLAY_HOST));
+        assert_eq!(query["file_id"], "2119");
+        assert_eq!(query["faid"], "1233");
+    }
+
+    #[test]
+    fn skips_dash_video_without_an_audio_stream() {
+        let (embed, audio) = source("video", VIDEO_ID)
+            .video_from_page(&video_page_without_audio())
+            .unwrap();
+        let play_url = Url::parse(&embed.media[0].url).unwrap();
+        let query: BTreeMap<_, _> = play_url.query_pairs().into_owned().collect();
+
+        assert_eq!(query["file_id"], "37a4");
+        assert_eq!(audio, None);
     }
 
     #[test]
