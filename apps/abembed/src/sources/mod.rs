@@ -1,6 +1,7 @@
 pub mod facebook;
 pub mod html;
 pub mod instagram;
+pub mod reddit;
 pub mod tiktok;
 
 use axum::{
@@ -11,7 +12,10 @@ use html::{discord_image_post_html, Site};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{cell::Cell, iter};
-use worker::{js_sys, web_sys, Env, Fetcher, Headers, KvStore, RequestInit, RequestRedirect, Url};
+use worker::{
+    js_sys, web_sys, Env, Fetch, Fetcher, Headers, HttpResponse, KvStore, Method, RequestInit,
+    RequestRedirect, Url,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct HttpError(pub StatusCode, pub String);
@@ -50,6 +54,10 @@ pub fn internal(message: impl Into<String>) -> HttpError {
     HttpError(StatusCode::INTERNAL_SERVER_ERROR, message.into())
 }
 
+pub fn sized(value: &str, len: std::ops::RangeInclusive<usize>, allowed: fn(u8) -> bool) -> bool {
+    len.contains(&value.len()) && value.bytes().all(allowed)
+}
+
 pub fn header_str(headers: &HeaderMap, name: header::HeaderName) -> &str {
     headers
         .get(name)
@@ -77,6 +85,8 @@ pub trait Source {
 
     const HOSTS: &'static [&'static str];
     const FORCE_FULL_EMBED: bool = false;
+    // an empty media list means the post was behind a login wall
+    const GATED_WHEN_EMPTY: bool = false;
 
     fn id(&self) -> &str;
     fn cache_key(&self) -> String;
@@ -150,7 +160,7 @@ pub async fn api<S: Source>(
     headers: &HeaderMap,
 ) -> Result<Response, HttpError> {
     let post = load_post(env, source).await?;
-    if let Some(error) = gated_error(&post) {
+    if let Some(error) = gated_error(&post).filter(|_| S::GATED_WHEN_EMPTY) {
         return Err(error);
     }
     let base = media_base(S::HOSTS, S::PLATFORM, headers);
@@ -245,7 +255,8 @@ pub async fn get_cached<T: DeserializeOwned>(cache: &KvStore, key: &str) -> Opti
 pub async fn put_cached(cache: &KvStore, key: &str, value: &impl Serialize) {
     let put = async {
         cache
-            .put(key, value)?
+            // put stores strings raw, get_cached always parses json
+            .put(key, serde_json::to_string(value)?)?
             .expiration_ttl(CACHE_TTL_SECONDS)
             .execute()
             .await
@@ -300,7 +311,7 @@ pub async fn load_post<S: Source>(env: &Env, source: &S) -> Result<EmbedPost, Ht
         return Ok(post);
     }
 
-    let providers = Providers::from_env(env)?;
+    let providers = Providers::for_platform(env, S::PLATFORM)?;
     let result = source.fetch(env, &providers).await;
     log(&json!({
         "event": "embed",
@@ -374,29 +385,90 @@ pub struct ProviderResponse {
     pub body: String,
 }
 
+const HOSTED_PROVIDER_PLATFORMS_VAR: &str = "HOSTED_PROVIDER_PLATFORMS";
+const HOSTED_PROVIDERS_SECRET: &str = "HOSTED_PROVIDERS";
+const HOSTED_PROVIDER_TOKEN_SECRET: &str = "HOSTED_PROVIDER_TOKEN";
+const DEBUG_PROVIDERS_VAR: &str = "DEBUG_PROVIDERS";
+
+enum Provider {
+    // apps/provider, the default fetcher for sources
+    Worker(Fetcher),
+    // apps/hosted-provider, for sites that block cloudflare
+    Hosted { url: String, token: String },
+}
+
 // providers are region locked, helps to avoid region restirctions and keep accounts to appear from
 // the same region
 pub struct Providers {
-    fetchers: Vec<Fetcher>,
-    // last region that answered, used for logging
-    used: Cell<Option<&'static str>>,
+    // named by region, hosted ones by url
+    providers: Vec<(String, Provider)>,
+    // last provider that answered, used for logging
+    used: Cell<Option<usize>>,
+    // log the start of failed responses
+    debug: bool,
 }
 
 impl Providers {
+    fn new(env: &Env, providers: Vec<(String, Provider)>) -> Self {
+        Self {
+            providers,
+            used: Cell::new(None),
+            debug: env
+                .var(DEBUG_PROVIDERS_VAR)
+                .is_ok_and(|value| value.to_string() == "true"),
+        }
+    }
+
     pub fn from_env(env: &Env) -> Result<Self, HttpError> {
         REGIONS
             .iter()
-            .map(|region| env.service(&format!("PROVIDER_{}", region.to_ascii_uppercase())))
-            .collect::<worker::Result<_>>()
-            .map(|fetchers| Self {
-                fetchers,
-                used: Cell::new(None),
+            .map(|region| {
+                env.service(&format!("PROVIDER_{}", region.to_ascii_uppercase()))
+                    .map(|fetcher| (region.to_string(), Provider::Worker(fetcher)))
             })
+            .collect::<worker::Result<_>>()
+            .map(|providers| Self::new(env, providers))
             .map_err(|error| internal(error.to_string()))
     }
 
-    pub fn used(&self) -> Option<&'static str> {
-        self.used.get()
+    pub fn hosted(env: &Env) -> Result<Self, HttpError> {
+        let secret = |name| {
+            env.secret(name)
+                .map(|secret| secret.to_string())
+                .map_err(|error| internal(format!("{name}: {error}")))
+        };
+        let token = secret(HOSTED_PROVIDER_TOKEN_SECRET)?;
+        let providers: Vec<_> = hosted_list(&secret(HOSTED_PROVIDERS_SECRET)?)
+            .map(|url| {
+                let provider = Provider::Hosted {
+                    url: url.to_string(),
+                    token: token.clone(),
+                };
+                (url.to_string(), provider)
+            })
+            .collect();
+        if providers.is_empty() {
+            return Err(internal(format!("{HOSTED_PROVIDERS_SECRET} has no urls")));
+        }
+
+        Ok(Self::new(env, providers))
+    }
+
+    // sites that block cloudflare go through apps/hosted-provider instead
+    pub fn for_platform(env: &Env, platform: &str) -> Result<Self, HttpError> {
+        let hosted = env
+            .var(HOSTED_PROVIDER_PLATFORMS_VAR)
+            .is_ok_and(|platforms| hosted_list(&platforms.to_string()).any(|p| p == platform));
+        match hosted {
+            true => Self::hosted(env),
+            false => Self::from_env(env),
+        }
+    }
+
+    pub fn used(&self) -> Option<&str> {
+        self.used
+            .get()
+            .map(|index| self.providers[index].0.as_str())
     }
 
     pub async fn fetch<T>(
@@ -405,17 +477,25 @@ impl Providers {
         headers: &[(&str, &str)],
         parse: impl Fn(&str) -> Result<T, HttpError>,
     ) -> Result<T, HttpError> {
-        for region in REGIONS.iter().cycle().take(REGIONS.len() * 2) {
-            let attempt = async {
-                let response = self
-                    .fetch_raw(region, url, headers, RequestRedirect::Follow)
-                    .await?;
-                if !(200..300).contains(&response.status) {
-                    return Err(bad_gateway(format!("{url} returned {}", response.status)));
-                }
-                parse(&response.body)
-            };
-            match attempt.await {
+        let names = self.providers.iter().map(|(name, _)| name.as_str());
+        for region in names.cycle().take(self.providers.len() * 2) {
+            let result = self
+                .fetch_raw(region, url, headers, RequestRedirect::Follow)
+                .await
+                .and_then(|response| {
+                    let parsed = match (200..300).contains(&response.status) {
+                        true => parse(&response.body),
+                        false => Err(bad_gateway(format!("{url} returned {}", response.status))),
+                    };
+                    parsed.map_err(|HttpError(status, message)| match self.debug {
+                        true => HttpError(
+                            status,
+                            format!("{message}, body: {}", excerpt(&response.body)),
+                        ),
+                        false => HttpError(status, message),
+                    })
+                });
+            match result {
                 Ok(value) => return Ok(value),
                 Err(HttpError(_, message)) => warn(
                     &json!({ "event": "provider", "region": region, "url": url, "error": message }),
@@ -432,7 +512,7 @@ impl Providers {
         headers: &[(&str, &str)],
         parse: impl Fn(&str) -> Option<T>,
     ) -> Result<T, HttpError> {
-        for region in REGIONS {
+        for (region, _) in &self.providers {
             match self
                 .fetch_raw(region, url, headers, RequestRedirect::Manual)
                 .await
@@ -451,6 +531,7 @@ impl Providers {
                             "url": url,
                             "status": response.status,
                             "error": "no usable redirect",
+                            "body": self.debug.then(|| excerpt(&response.body)),
                         })),
                     }
                 }
@@ -470,18 +551,51 @@ impl Providers {
         headers: &[(&str, &str)],
         redirect: RequestRedirect,
     ) -> Result<ProviderResponse, HttpError> {
-        let index = REGIONS
+        let index = self
+            .providers
             .iter()
-            .position(|known| *known == region)
+            .position(|(name, _)| name == region)
             .ok_or_else(|| internal(format!("Unknown provider region {region}")))?;
 
-        let provider = &self.fetchers[index];
         let failed = |error: worker::Error| bad_gateway(format!("Failed to fetch {url}: {error}"));
 
-        let mut init = RequestInit::new();
-        init.with_headers(headers.iter().collect::<Headers>())
-            .with_redirect(redirect);
-        let response = provider.fetch(url, Some(init)).await.map_err(failed)?;
+        let response = match &self.providers[index].1 {
+            Provider::Worker(fetcher) => {
+                let mut init = RequestInit::new();
+                init.with_headers(headers.iter().collect::<Headers>())
+                    .with_redirect(redirect);
+                fetcher.fetch(url, Some(init)).await
+            }
+            Provider::Hosted { url: base, token } => {
+                let body = json!({
+                    "url": url,
+                    "headers": headers,
+                    "follow_redirects": matches!(redirect, RequestRedirect::Follow),
+                });
+                let authorization = format!("Bearer {token}");
+                let mut init = RequestInit::new();
+                init.with_method(Method::Post)
+                    .with_headers(
+                        [
+                            ("Authorization", authorization.as_str()),
+                            ("Content-Type", "application/json"),
+                        ]
+                        .iter()
+                        .collect::<Headers>(),
+                    )
+                    .with_body(Some(body.to_string().into()))
+                    .with_redirect(RequestRedirect::Manual);
+                let request = worker::Request::new_with_init(&format!("{base}/fetch"), &init);
+                match request {
+                    Ok(request) => Fetch::Request(request)
+                        .send()
+                        .await
+                        .and_then(HttpResponse::try_from),
+                    Err(error) => Err(error),
+                }
+            }
+        }
+        .map_err(failed)?;
 
         let status = response.status().as_u16();
 
@@ -505,7 +619,7 @@ impl Providers {
             .await
             .map_err(failed)?;
 
-        self.used.set(Some(REGIONS[index]));
+        self.used.set(Some(index));
         Ok(ProviderResponse {
             status,
             location,
@@ -513,6 +627,17 @@ impl Providers {
             body,
         })
     }
+}
+
+fn excerpt(body: &str) -> String {
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(1000).collect()
+}
+
+fn hosted_list(list: &str) -> impl Iterator<Item = &str> {
+    list.split(',')
+        .map(|url| url.trim().trim_end_matches('/'))
+        .filter(|url| !url.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -582,6 +707,14 @@ mod tests {
             ("accept", "text/html"),
             ("sec-fetch-mode", "navigate"),
         ])));
+    }
+
+    #[test]
+    fn hosted_provider_urls_are_comma_separated() {
+        let urls: Vec<_> =
+            hosted_list(" https://a.example.com/, https://b.example.com,,").collect();
+
+        assert_eq!(urls, ["https://a.example.com", "https://b.example.com"]);
     }
 
     fn post(media: &[&str]) -> EmbedPost {

@@ -1,3 +1,3 @@
 # abembed
 
-Discord embed link fixer for spotify, tiktok, twitter, instagram, facebook
+Discord embed link fixer for spotify, tiktok, twitter, instagram, facebook, reddit

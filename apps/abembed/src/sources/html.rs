@@ -67,6 +67,7 @@ pub fn discord_image_post_html(
     let gallery: Vec<Value> = (0..embed.media.len().min(MEDIA_GALLERY_ITEM_LIMIT))
         .map(|index| json!({ "media": { "url": media_url(index) } }))
         .collect();
+    let gallery = (!gallery.is_empty()).then(|| json!({ "type": 12, "items": gallery }));
     let stats = embed.stats.clone().unwrap_or_default();
     let stats = [
         ("❤️", stats.likes),
@@ -90,10 +91,8 @@ pub fn discord_image_post_html(
             "accent_color": site.accent_color,
             "components": header
                 .into_iter()
-                .chain([
-                    json!({ "type": 12, "items": gallery }),
-                    json!({ "type": 10, "content": footer }),
-                ])
+                .chain(gallery)
+                .chain([json!({ "type": 10, "content": footer })])
                 .collect::<Vec<_>>(),
         },
     })

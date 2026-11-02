@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/abembed", "apps/api", "apps/gif-service", "apps/provider", "apps/proxy"]
+members = ["apps/abembed", "apps/api", "apps/gif-service", "apps/hosted-provider", "apps/provider", "apps/proxy"]
 resolver = "2"
 
 [workspace.metadata.crane]
