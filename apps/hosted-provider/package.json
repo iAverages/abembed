@@ -1,0 +1,9 @@
+{
+  "name": "@abembed/hosted-provider",
+  "private": true,
+  "scripts": {
+    "dev": "cargo run",
+    "build": "cargo build",
+    "check": "cargo check"
+  }
+}

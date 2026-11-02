@@ -47,6 +47,50 @@ service = "abembed-provider-c"
 binding = "PROVIDER_D"
 service = "abembed-provider-d"
 
+# `wrangler preview` bindings, not inherited from above. uses the staging resources
+[previews.observability]
+enabled = true
+
+
+[previews.env.reddit.vars]
+DEBUG_PROVIDERS = "true"
+HOSTED_PROVIDER_PLATFORMS = "reddit"
+
+[[previews.kv_namespaces]]
+binding = "POST_CACHE"
+id = "edbc21046a154c07b9b85e180e2629b4"
+
+[[previews.d1_databases]]
+binding = "ACCOUNTS"
+database_name = "abembed-staging-accounts"
+database_id = "09091008-ed93-4216-8bbc-33fa598522fa"
+
+[[previews.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
+[[previews.ratelimits]]
+name = "ADMIN_LIMITER"
+namespace_id = "1004"
+simple = { limit = 3, period = 60 }
+
+[[previews.services]]
+binding = "PROVIDER_A"
+service = "abembed-provider-a"
+
+[[previews.services]]
+binding = "PROVIDER_B"
+service = "abembed-provider-b"
+
+[[previews.services]]
+binding = "PROVIDER_C"
+service = "abembed-provider-c"
+
+[[previews.services]]
+binding = "PROVIDER_D"
+service = "abembed-provider-d"
+
 # routes live here rather than top level so `wrangler dev` keeps the real request host
 [env.production]
 name = "abembed"
@@ -61,8 +105,19 @@ routes = [
   { pattern = "abfacebook.com", custom_domain = true },
   { pattern = "www.abfacebook.com", custom_domain = true },
 
+  { pattern = "abreddit.com", custom_domain = true },
+  { pattern = "www.abreddit.com", custom_domain = true },
+  { pattern = "old.abreddit.com", custom_domain = true },
+
   { pattern = "abembed.com", custom_domain = true },
   { pattern = "www.abembed.com", custom_domain = true },
+
+  # `wrangler preview` deployments, served at <preview name>.previews.<domain>
+  { pattern = "previews.abinstagram.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abtiktok.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abfacebook.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abreddit.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abembed.com", custom_domain = true, enabled = false, previews_enabled = true },
 ]
 
 [[env.production.kv_namespaces]]
@@ -139,5 +194,51 @@ binding = "PROVIDER_C"
 service = "abembed-provider-c"
 
 [[env.staging.services]]
+binding = "PROVIDER_D"
+service = "abembed-provider-d"
+
+
+[env.reddit]
+routes = [
+  { pattern = "preview.abembed.com", custom_domain = true },
+  { pattern = "preview.abreddit.com", custom_domain = true },
+]
+
+[env.reddit.vars]
+DEBUG_PROVIDERS = "true"
+HOSTED_PROVIDER_PLATFORMS = "reddit"
+
+[[env.reddit.kv_namespaces]]
+binding = "POST_CACHE"
+id = "edbc21046a154c07b9b85e180e2629b4"
+
+[[env.reddit.d1_databases]]
+binding = "ACCOUNTS"
+database_name = "abembed-staging-accounts"
+database_id = "09091008-ed93-4216-8bbc-33fa598522fa"
+
+[[env.reddit.ratelimits]]
+name = "ACCOUNT_LIMITER"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
+[[env.reddit.ratelimits]]
+name = "ADMIN_LIMITER"
+namespace_id = "1004"
+simple = { limit = 3, period = 60 }
+
+[[env.reddit.services]]
+binding = "PROVIDER_A"
+service = "abembed-provider-a"
+
+[[env.reddit.services]]
+binding = "PROVIDER_B"
+service = "abembed-provider-b"
+
+[[env.reddit.services]]
+binding = "PROVIDER_C"
+service = "abembed-provider-c"
+
+[[env.reddit.services]]
 binding = "PROVIDER_D"
 service = "abembed-provider-d"

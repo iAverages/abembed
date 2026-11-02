@@ -192,6 +192,7 @@ impl Source for InstagramSource {
         accent_color: 0xce0071,
     };
     const HOSTS: &'static [&'static str] = &["abinstagram.com"];
+    const GATED_WHEN_EMPTY: bool = true;
 
     fn id(&self) -> &str {
         &self.shortcode

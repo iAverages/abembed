@@ -165,6 +165,13 @@
 
       inherit (gifServicePackages) gifService gifServiceDockerImage;
 
+      inherit
+        (import ./apps/hosted-provider/nix/packages.nix {
+          inherit craneLib individualCrateArgs;
+        })
+        hostedProvider
+        ;
+
       embedImageServiceFileset = lib.fileset.unions [
         ./pnpm-lock.yaml
         ./pnpm-workspace.yaml
@@ -199,7 +206,7 @@
       inherit (embedImageServicePackages) embedImageService embedImageServiceDockerImage;
     in {
       checks = {
-        inherit api embedImageService gifService abembedWorker providerWorker proxyWorker;
+        inherit api embedImageService gifService hostedProvider abembedWorker providerWorker proxyWorker;
 
         workspace-clippy = craneLib.cargoClippy (
           commonRustArgs
@@ -251,7 +258,10 @@
         };
 
       packages = {
-        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage abembedWorker providerWorker proxyWorker;
+        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage hostedProvider abembedWorker providerWorker proxyWorker;
       };
-    });
+    })
+    // {
+      nixosModules.hosted-provider = import ./apps/hosted-provider/nix/module.nix self;
+    };
 }

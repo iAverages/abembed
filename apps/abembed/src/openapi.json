@@ -2,14 +2,15 @@
     "openapi": "3.1.0",
     "info": {
         "title": "abembed",
-        "description": "Embed proxy for Facebook, Instagram and TikTok posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, posts with more get a component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
+        "description": "Embed proxy for Facebook, Instagram, TikTok and Reddit posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, posts with more get a component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
         "version": "1.0.0"
     },
     "servers": [{ "url": "https://staging.abembed.com" }],
     "tags": [
         { "name": "facebook" },
         { "name": "instagram" },
-        { "name": "tiktok" }
+        { "name": "tiktok" },
+        { "name": "reddit" }
     ],
     "paths": {
         "/facebook/{path}": {
@@ -329,6 +330,108 @@
                     "502": { "$ref": "#/components/responses/JsonError" }
                 }
             }
+        },
+        "/reddit/r/{subreddit}/comments/{id}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Embed for a Reddit post",
+                "description": "Also served with the post slug after the id, as in reddit links.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/reddit/r/{subreddit}/comments/{id}/comment/{comment}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Embed for a Reddit comment",
+                "description": "Also served as `/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}`.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/reddit/r/{subreddit}/comments/{id}/media/{index}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Redirect to one of a Reddit post's media",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/reddit/r/{subreddit}/comments/{id}/comment/{comment}/media/{index}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Redirect to one of a Reddit comment's media",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" },
+                    { "$ref": "#/components/parameters/Index" }
+                ],
+                "responses": {
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit post json",
+                "description": "Also served with the post slug after the id, as in reddit links.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/comment/{comment}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit comment json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
         }
     },
     "components": {
@@ -383,6 +486,27 @@
                 "in": "path",
                 "required": true,
                 "schema": { "type": "string", "pattern": "^[0-9]+$" }
+            },
+            "RedditSubreddit": {
+                "name": "subreddit",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[A-Za-z0-9_]{2,21}$" },
+                "example": "osugame"
+            },
+            "RedditId": {
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[a-z0-9]{1,16}$" },
+                "example": "1xm08ih"
+            },
+            "RedditComment": {
+                "name": "comment",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[a-z0-9]{1,16}$" },
+                "example": "19roziotq9zur"
             }
         },
         "responses": {

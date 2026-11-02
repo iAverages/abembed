@@ -7,7 +7,7 @@ compatibility_date = "2026-10-01"
 command = "[ -n \"$WORKER_PREBUILT\" ] || worker-build --release"
 
 [vars]
-ALLOWED_HOSTS = "tiktokcdn.com,tiktokcdn-us.com,tiktokv.com,tiktokcdn-eu.com,fbcdn.net"
+ALLOWED_HOSTS = "tiktokcdn.com,tiktokcdn-us.com,tiktokv.com,tiktokcdn-eu.com,fbcdn.net,v.redd.it"
 
 # routes live here rather than top level so `wrangler dev` keeps the real request host
 [env.production]
@@ -15,4 +15,4 @@ name = "abembed-proxy"
 routes = [{ pattern = "proxy.abembed.com", custom_domain = true }]
 
 [env.production.vars]
-ALLOWED_HOSTS = "tiktokcdn.com,tiktokcdn-us.com,tiktokv.com,tiktokcdn-eu.com,fbcdn.net"
+ALLOWED_HOSTS = "tiktokcdn.com,tiktokcdn-us.com,tiktokv.com,tiktokcdn-eu.com,fbcdn.net,v.redd.it"

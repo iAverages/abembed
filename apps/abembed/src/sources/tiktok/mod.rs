@@ -4,7 +4,7 @@ mod page;
 
 use super::{
     bad_request, get_cached, html::Site, merged_video_url, post_cache, put_cached, redirect,
-    redirects_browser, warn, EmbedPost, HttpError, Providers, Source,
+    redirects_browser, sized, warn, EmbedPost, HttpError, Providers, Source,
 };
 use axum::{
     extract::{Path, State},
@@ -292,10 +292,6 @@ impl Source for TikTokSource {
             },
         }
     }
-}
-
-fn sized(value: &str, len: std::ops::RangeInclusive<usize>, allowed: fn(u8) -> bool) -> bool {
-    len.contains(&value.len()) && value.bytes().all(allowed)
 }
 
 #[cfg(test)]
