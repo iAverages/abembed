@@ -57,6 +57,7 @@ routes = [
   { pattern = "abtiktok.com", custom_domain = true },
   { pattern = "vt.abtiktok.com", custom_domain = true },
   { pattern = "vm.abtiktok.com", custom_domain = true },
+  { pattern = "www.abtiktok.com", custom_domain = true },
 
   { pattern = "abfacebook.com", custom_domain = true },
   { pattern = "www.abfacebook.com", custom_domain = true },
