@@ -49,12 +49,38 @@ export async function getFont<TWeights extends readonly number[]>({
     return Object.fromEntries(await Promise.all(promises));
 }
 
-export const inter = await getFont({
-    family: "Inter",
-    weights: [400, 700] as const,
-});
+const families = [
+    "Inter",
+    "Noto Sans JP",
+    "Noto Sans KR",
+    "Noto Sans SC",
+    "Noto Sans TC",
+    "Noto Sans HK",
+    "Noto Sans Hebrew",
+    "Noto Sans Thai",
+    "Noto Sans Devanagari",
+    "Noto Sans Bengali",
+    "Noto Sans Tamil",
+    "Noto Sans Telugu",
+    "Noto Sans Gujarati",
+    "Noto Sans Gurmukhi",
+    "Noto Sans Kannada",
+    "Noto Sans Malayalam",
+    "Noto Sans Oriya",
+    "Noto Sans Ethiopic",
+];
 
-export const notoSans = await getFont({
-    family: "Noto Sans JP",
-    weights: [400, 700] as const,
-});
+export const fonts = (
+    await Promise.all(
+        families.map(async (name) => {
+            const font = await getFont({
+                family: name,
+                weights: [400, 700] as const,
+            });
+            return [
+                { name, data: font[400], weight: 400 as const },
+                { name, data: font[700], weight: 700 as const },
+            ];
+        }),
+    )
+).flat();

@@ -8,7 +8,7 @@ import {
 import { Effect, Schema } from "effect";
 import { Vibrant } from "node-vibrant/node";
 import satori from "satori";
-import { inter, notoSans } from "./fonts";
+import { fonts } from "./fonts";
 import { buildAlbumTrackRows, clampTrackIndex } from "./track-rows";
 
 export { clampTrackIndex } from "./track-rows";
@@ -84,28 +84,7 @@ export const generateImage = (opts: {
                 satori(svgComp, {
                     width: ALBUM_IMAGE_WIDTH,
                     height: 300,
-                    fonts: [
-                        {
-                            name: "Inter",
-                            data: inter[400],
-                            weight: 400,
-                        },
-                        {
-                            name: "Inter",
-                            data: inter[700],
-                            weight: 700,
-                        },
-                        {
-                            name: "Noto Sans JP",
-                            data: notoSans[400],
-                            weight: 400,
-                        },
-                        {
-                            name: "Noto Sans JP",
-                            data: notoSans[700],
-                            weight: 700,
-                        },
-                    ],
+                    fonts,
                 }),
             catch: () => new GenerateSvgDataError(),
         });
@@ -192,28 +171,7 @@ const generateCollectionImage = (
                 satori(svgComp, {
                     width: ALBUM_IMAGE_WIDTH,
                     height: imageHeight,
-                    fonts: [
-                        {
-                            name: "Inter",
-                            data: inter[400],
-                            weight: 400,
-                        },
-                        {
-                            name: "Inter",
-                            data: inter[700],
-                            weight: 700,
-                        },
-                        {
-                            name: "Noto Sans JP",
-                            data: notoSans[400],
-                            weight: 400,
-                        },
-                        {
-                            name: "Noto Sans JP",
-                            data: notoSans[700],
-                            weight: 700,
-                        },
-                    ],
+                    fonts,
                 }),
             catch: () => new GenerateSvgDataError(),
         });
