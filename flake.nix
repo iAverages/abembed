@@ -1,9 +1,18 @@
 {
+  nixConfig = {
+    extra-substituters = ["https://cache.ryand.ca"];
+    extra-trusted-public-keys = ["ryandcache:H6aJbZCm8sAoMXCB9XbLAJb/ZamM6AY5Ns/QYGimOek="];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
+    wrangler = {
+      url = "github:emrldnix/wrangler";
+      # inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -11,6 +20,7 @@
     rust-overlay,
     flake-utils,
     crane,
+    wrangler,
     self,
     ...
   }:
@@ -195,8 +205,9 @@
         pname = "embed-image-service";
         version = "0.1.0";
         src = embedImageServiceSrc;
-        fetcherVersion = 3;
-        hash = "sha256-llxysmPg44mu87bM4/UUHlIHbayPXpIBm4DDNWWIDiQ=";
+        pnpm = pkgs.pnpm_12;
+        fetcherVersion = 5;
+        hash = "sha256-usKRF6tEilbp6YIqZb7IQ0qs2sf72u8elQpBycKmC4I=";
       };
 
       embedImageServicePackages = import ./apps/embed-image-service/nix/packages.nix {
@@ -235,8 +246,8 @@
           checks = self.checks.${system};
 
           packages = [
-            nodejs_25
-            pnpm_10
+            nodejs_26
+            pnpm_12
             pkg-config
             openssl
             just
@@ -244,7 +255,7 @@
             kubernetes-helm
             ffmpeg-headless
             gifski
-            wrangler
+            wrangler.packages.${system}.default
             workerBuild
           ];
 

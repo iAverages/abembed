@@ -12,8 +12,8 @@
     pnpmDeps = embedImageServicePnpmDeps;
 
     nativeBuildInputs = [
-      pkgs.nodejs_25
-      pkgs.pnpm_10
+      pkgs.nodejs_26
+      pkgs.pnpm_12
       pkgs.pnpmConfigHook
     ];
 
@@ -59,14 +59,14 @@
     tag = gitTag;
 
     contents = [
-      pkgs.nodejs_25
+      pkgs.nodejs_26
       embedImageService
       pkgs.cacert
     ];
 
     config = {
       Cmd = [
-        "${pkgs.nodejs_25}/bin/node"
+        "${pkgs.nodejs_26}/bin/node"
         "${embedImageService}/dist/index.js"
       ];
       ExposedPorts = {

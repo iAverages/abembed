@@ -2,3 +2,9 @@ packages:
   - apps/*
   - packages/*
   - packages/config/*
+
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
+  esbuild: false
+  msgpackr-extract: false
