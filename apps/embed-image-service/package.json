@@ -10,18 +10,18 @@
         "start": "node dist/index.js"
     },
     "dependencies": {
-        "@effect/platform": "0.96.1",
-        "@effect/platform-node": "0.106.0",
+        "@effect/platform": "0.97.2",
+        "@effect/platform-node": "0.108.4",
         "@resvg/resvg-js": "^2.6.2",
         "@spqtify/embed-image": "workspace:",
-        "effect": "3.21.2",
+        "effect": "3.22.4",
         "node-vibrant": "^4.0.4",
-        "satori": "^0.26.0"
+        "satori": "^0.63.0"
     },
     "devDependencies": {
         "@spqtify/tsconfig": "workspace:^",
         "tsc-alias": "^1.8.17",
-        "tsx": "4.21.0",
+        "tsx": "4.23.15",
         "typescript": "6.0.3"
     }
 }
