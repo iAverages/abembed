@@ -163,6 +163,7 @@ impl TikTokSource {
                 comments: count(&stats["commentCount"]),
                 shares: count(&stats["shareCount"]),
             }),
+            reply_to: None,
         }
     }
 

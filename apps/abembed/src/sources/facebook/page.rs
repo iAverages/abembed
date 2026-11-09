@@ -118,6 +118,7 @@ impl FacebookSource {
             author,
             media,
             stats,
+            reply_to: None,
         })
     }
 
@@ -174,6 +175,7 @@ impl FacebookSource {
             author,
             media,
             stats: Some(stats),
+            reply_to: None,
         })
     }
 }

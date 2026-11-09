@@ -230,6 +230,13 @@ impl Source for TikTokSource {
     const SITE: Site = Site {
         name: "TikTok",
         accent_color: 0xfe2c55,
+        stats: &[
+            ("❤️", |stats| stats.likes),
+            ("💬", |stats| stats.comments),
+            ("↪️", |stats| stats.shares),
+        ],
+        mention_url: Some("https://www.tiktok.com/@"),
+        hashtag_url: Some("https://www.tiktok.com/tag/"),
     };
     const HOSTS: &'static [&'static str] = &["abtiktok.com"];
 
@@ -341,6 +348,9 @@ mod tests {
         assert!(body.contains(r#"id="discord:component-embed""#));
         assert!(body.contains(&format!(
             "https://abembed.com/tiktok/@{USERNAME}/photo/{PHOTO_ID}/media/1"
+        )));
+        assert!(body.contains(&format!(
+            "([@{USERNAME}](https://www.tiktok.com/@{USERNAME}))**"
         )));
     }
 }

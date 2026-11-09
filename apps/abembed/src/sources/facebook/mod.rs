@@ -279,6 +279,13 @@ impl Source for FacebookSource {
     const SITE: Site = Site {
         name: "Facebook",
         accent_color: 0x0866ff,
+        stats: &[
+            ("👍", |stats| stats.likes),
+            ("💬", |stats| stats.comments),
+            ("↪️", |stats| stats.shares),
+        ],
+        mention_url: None,
+        hashtag_url: Some("https://www.facebook.com/hashtag/"),
     };
     const HOSTS: &'static [&'static str] = &["abfacebook.com"];
 
@@ -676,5 +683,6 @@ mod tests {
             r#"<meta property="og:image" content="https://abembed.com/facebook/share/p/{POST_CODE}/media/0">"#
         )));
         assert!(!body.contains(IMAGE_ONE));
+        assert!(body.contains("](https://www.facebook.com/"), "{body}");
     }
 }

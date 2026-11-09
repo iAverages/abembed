@@ -263,13 +263,49 @@ impl RedditSource {
             .await
     }
 
-    async fn post_title(&self, providers: &Providers) -> Option<String> {
-        match self.post().fetch_page(providers).await {
-            Ok(post) => post.title,
+    async fn fetch_entry(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
+        let mut embed = self.fetch_page(providers).await?;
+
+        for media in &mut embed.media {
+            if let Some(id) = dash_id(&media.url).map(str::to_string) {
+                let playlist = format!("https://v.redd.it/{id}/DASHPlaylist.mpd");
+                *media = providers
+                    .fetch(&playlist, &HTML_HEADERS, |xml| dash_video(xml, &id))
+                    .await?;
+            }
+        }
+
+        // comment embeds have no title, the post they reply to is shown instead
+        if self.comment.is_none() && embed.title.is_none() {
+            let (title, author_name) = self.oembed(providers).await;
+            embed.title = title.or_else(|| self.slug_title());
+            embed.author = embed.author.or(author_name.map(author));
+        }
+
+        let heading = embed.title.as_ref().map(|title| format!("**{title}**"));
+        embed.description = match (heading, embed.description.take()) {
+            (Some(heading), Some(body)) => Some(format!("{heading}\n{body}")),
+            (heading, body) => heading.or(body),
+        };
+
+        Ok(embed)
+    }
+
+    async fn reply_to(&self, providers: &Providers) -> Option<Box<EmbedPost>> {
+        match self.post().fetch_entry(providers).await {
+            Ok(post) => Some(Box::new(post)),
             Err(HttpError(_, message)) => {
                 self.warn_fallback("post", &message);
                 None
             }
+        }
+    }
+
+    fn with_subreddit(&self, description: Option<String>) -> String {
+        let subreddit = format!("-# [r/{0}](https://www.reddit.com/r/{0}/)", self.subreddit);
+        match description {
+            Some(description) => format!("{subreddit}\n{description}"),
+            None => subreddit,
         }
     }
 
@@ -311,6 +347,9 @@ impl Source for RedditSource {
     const SITE: Site = Site {
         name: "Reddit",
         accent_color: 0xff4500,
+        stats: &[("⬆️", |stats| stats.likes), ("💬", |stats| stats.comments)],
+        mention_url: None,
+        hashtag_url: None,
     };
     const HOSTS: &'static [&'static str] = &["abreddit.com"];
     const FORCE_FULL_EMBED: bool = true;
@@ -321,7 +360,7 @@ impl Source for RedditSource {
 
     fn cache_key(&self) -> String {
         let key = format!(
-            "embed:v1:reddit:{}:{}",
+            "embed:v2:reddit:{}:{}",
             self.subreddit.to_ascii_lowercase(),
             self.id
         );
@@ -346,39 +385,11 @@ impl Source for RedditSource {
     }
 
     async fn fetch(&self, _env: &Env, providers: &Providers) -> Result<EmbedPost, HttpError> {
-        let mut embed = self.fetch_page(providers).await?;
-
-        for media in &mut embed.media {
-            if let Some(id) = dash_id(&media.url).map(str::to_string) {
-                let playlist = format!("https://v.redd.it/{id}/DASHPlaylist.mpd");
-                *media = providers
-                    .fetch(&playlist, &HTML_HEADERS, |xml| dash_video(xml, &id))
-                    .await?;
-            }
-        }
-
+        let mut embed = self.fetch_entry(providers).await?;
         if self.comment.is_some() {
-            embed.title = self.post_title(providers).await;
+            embed.reply_to = self.reply_to(providers).await;
         }
-
-        if embed.title.is_none() {
-            let (title, author_name) = self.oembed(providers).await;
-            embed.title = title.or_else(|| self.slug_title());
-            // oembed is always for the post, its author is not the commenter
-            if self.comment.is_none() {
-                embed.author = embed.author.or(author_name.map(author));
-            }
-        }
-
-        let heading = embed.title.as_ref().map(|title| match self.comment {
-            Some(_) => format!("**Re: {title}**"),
-            None => format!("**{title}**"),
-        });
-
-        embed.description = match (heading, embed.description.take()) {
-            (Some(heading), Some(body)) => Some(format!("{heading}\n{body}")),
-            (heading, body) => heading.or(body),
-        };
+        embed.description = Some(self.with_subreddit(embed.description.take()));
 
         Ok(embed)
     }
@@ -457,6 +468,30 @@ mod tests {
         ] {
             assert!(RedditSource::from_url(url).is_err(), "{url}");
         }
+    }
+
+    #[test]
+    fn comments_embed_above_the_quoted_post() {
+        let mut post = source().embed_from_html(&text_post_page()).unwrap();
+        post.description = Some("**Title**\nbody".to_string());
+        let mut comment = comment_source()
+            .embed_from_html(&text_comment_page())
+            .unwrap();
+        comment.description = Some(comment_source().with_subreddit(comment.description));
+        comment.reply_to = Some(Box::new(post));
+
+        let body = comment_source().embed_html(&comment, "https://abreddit.com");
+        let comment_text = body
+            .find(r#"**[@zepol_xela](https://www.reddit.com/user/zepol_xela/)**\n-# [r/osugame](https://www.reddit.com/r/osugame/)\nFurina in r/osugame? damn"#)
+            .unwrap();
+        let comment_footer = body
+            .find("⬆️ 1 · 💬 0 · [View on Reddit](https://www.reddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/)")
+            .unwrap();
+        let post_text = body
+            .find(r#"**Replying to**\n**[@Novapierce_](https://www.reddit.com/user/Novapierce_/)**\n> **Title**\n> body"#)
+            .unwrap();
+
+        assert!(comment_text < comment_footer && comment_footer < post_text);
     }
 
     #[test]

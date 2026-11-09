@@ -64,6 +64,7 @@ impl RedditSource {
                 comments: comment_count(html),
                 ..Stats::default()
             }),
+            reply_to: None,
         })
     }
 }

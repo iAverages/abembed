@@ -132,7 +132,7 @@ pub async fn embed<S: Source>(
 
 pub async fn media(env: &Env, source: &impl Source, index: usize) -> Result<Response, HttpError> {
     let post = load_post(env, source).await?;
-    let media = post.media.get(index).ok_or(HttpError(
+    let media = post.all_media().nth(index).ok_or(HttpError(
         StatusCode::NOT_FOUND,
         "Media not found".to_string(),
     ))?;
@@ -653,6 +653,22 @@ pub struct EmbedPost {
 
     pub media: Vec<Media>,
     pub stats: Option<Stats>,
+
+    pub reply_to: Option<Box<EmbedPost>>,
+}
+
+impl EmbedPost {
+    pub fn entries(&self) -> impl Iterator<Item = (Option<&'static str>, &EmbedPost)> {
+        iter::once((None, self)).chain(
+            self.reply_to
+                .as_deref()
+                .map(|post| (Some("Replying to"), post)),
+        )
+    }
+
+    pub fn all_media(&self) -> impl Iterator<Item = &Media> {
+        self.entries().flat_map(|(_, post)| post.media.iter())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -735,6 +751,7 @@ mod tests {
                 })
                 .collect(),
             stats: None,
+            reply_to: None,
         }
     }
 

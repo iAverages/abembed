@@ -190,6 +190,9 @@ impl Source for InstagramSource {
     const SITE: Site = Site {
         name: "Instagram",
         accent_color: 0xce0071,
+        stats: &[("❤️", |stats| stats.likes), ("💬", |stats| stats.comments)],
+        mention_url: Some("https://www.instagram.com/"),
+        hashtag_url: Some("https://www.instagram.com/explore/tags/"),
     };
     const HOSTS: &'static [&'static str] = &["abinstagram.com"];
     const GATED_WHEN_EMPTY: bool = true;
@@ -391,5 +394,6 @@ mod tests {
         let body = source("reel").embed_html(&embed, "https://example.com/instagram");
 
         assert!(body.contains(r#"id="discord:component-embed""#));
+        assert!(body.contains("**Poster Name ([@poster](https://www.instagram.com/poster/))**"));
     }
 }
