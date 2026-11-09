@@ -10,7 +10,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
     "@effect/language-service": "^0.85.1",
-    "@types/node": "25.6.0",
+    "@types/node": "26.6.6",
     "@typescript/native-preview": "7.0.0-dev.20260503.1",
     "turbo": "2.9.8"
   }
