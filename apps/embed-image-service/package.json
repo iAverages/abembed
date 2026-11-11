@@ -22,6 +22,6 @@
         "@spqtify/tsconfig": "workspace:^",
         "tsc-alias": "^1.8.17",
         "tsx": "4.21.0",
-        "typescript": "6.0.3"
+        "typescript": "7.0.2"
     }
 }
