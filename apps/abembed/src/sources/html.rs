@@ -180,15 +180,7 @@ fn post_components(
         .description
         .as_deref()
         .filter(|description| !description.is_empty())
-        .map(|description| truncate(description, description_limit))
-        .map(|text| match label {
-            Some(_) => text
-                .lines()
-                .map(|line| format!("> {line}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            None => text,
-        });
+        .map(|description| quoted(link_tags(site, &truncate(description, description_limit))));
 
     let lines: Vec<String> = label
         .map(|label| format!("**{label}**"))
@@ -480,6 +472,16 @@ mod tests {
     #[test]
     fn sites_without_tag_urls_keep_their_text() {
         assert_eq!(link_tags(&SITE, "@na_me_ #tag"), "@na_me_ #tag");
+    }
+
+    #[test]
+    fn links_tags_in_the_embed_description() {
+        let embed = post("hi #tag", Some(post("to @someone", None)));
+        let body =
+            discord_image_post_html(&TAGGED_SITE, &embed, |_| String::new(), |_| String::new());
+
+        assert!(body.contains("hi [#tag](https://example.com/tag/tag)"));
+        assert!(body.contains("> to [@someone](https://example.com/@someone)"));
     }
 
     #[test]
