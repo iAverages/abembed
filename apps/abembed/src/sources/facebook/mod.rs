@@ -3,8 +3,9 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_gateway, bad_request, html::Site, log, warn, EmbedPost, HttpError, ProviderResponse,
-    Providers, Source, REGIONS,
+    bad_gateway, bad_request,
+    html::{icon, Site},
+    log, warn, EmbedPost, HttpError, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
@@ -281,9 +282,9 @@ impl Source for FacebookSource {
         name: "Facebook",
         accent_color: 0x0866ff,
         stats: &[
-            ("👍", |stats| stats.likes),
-            ("💬", |stats| stats.comments),
-            ("↪️", |stats| stats.shares),
+            (icon::THUMBS_UP, |stats| stats.likes),
+            (icon::COMMENT, |stats| stats.comments),
+            (icon::SHARE, |stats| stats.shares),
         ],
         mention_url: None,
         hashtag_url: Some("https://www.facebook.com/hashtag/"),

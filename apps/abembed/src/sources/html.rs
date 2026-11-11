@@ -17,6 +17,17 @@ const COMPONENT_EMBED_BYTE_LIMIT: usize = 3000;
 // description in the open graph tags
 const OPEN_GRAPH_DESCRIPTION_LIMIT: usize = 3500;
 
+// custom discord emojis
+pub mod icon {
+    pub const LIKE: &str = "<:like:1570216034164801686>";
+    pub const THUMBS_UP: &str = "<:thumbs_up:1570216032570708089>";
+    pub const COMMENT: &str = "<:comment:1570216030788395029>";
+    pub const SHARE: &str = "<:share:1570216028732919961>";
+    pub const REPOST: &str = "<:repost:1570216026900009021>";
+    pub const UPVOTE: &str = "<:upvote:1570216024635347138>";
+    pub const VIEWS: &str = "<:views:1570216021946662994>";
+}
+
 type Stat = (&'static str, fn(&Stats) -> Option<u64>);
 
 pub struct Site {
@@ -207,13 +218,17 @@ fn post_components(
     }
 
     let stats = post.stats.clone().unwrap_or_default();
-    let footer = site
+    let counts = site
         .stats
         .iter()
         .filter_map(|(icon, value)| Some(format!("{icon} {}", value(&stats)?)))
-        .chain([format!("[View on {}]({})", site.name, post.source_url)])
         .collect::<Vec<_>>()
-        .join(" · ");
+        .join("  ");
+    let link = format!("[View on {}]({})", site.name, post.source_url);
+    let footer = match counts.is_empty() {
+        true => link,
+        false => format!("{counts}  ·  {link}"),
+    };
     components.push(json!({ "type": 10, "content": footer }));
     components
 }

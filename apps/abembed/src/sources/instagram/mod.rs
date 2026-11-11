@@ -4,7 +4,7 @@ mod page;
 
 use super::{
     bad_request, gallery_html,
-    html::{escape_html, meta_name, meta_property, Site},
+    html::{escape_html, icon, meta_name, meta_property, Site},
     log, EmbedPost, HttpError, ProviderResponse, Providers, Source,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
@@ -192,7 +192,10 @@ impl Source for InstagramSource {
     const SITE: Site = Site {
         name: "Instagram",
         accent_color: 0xce0071,
-        stats: &[("❤️", |stats| stats.likes), ("💬", |stats| stats.comments)],
+        stats: &[
+            (icon::LIKE, |stats| stats.likes),
+            (icon::COMMENT, |stats| stats.comments),
+        ],
         mention_url: Some("https://www.instagram.com/"),
         hashtag_url: Some("https://www.instagram.com/explore/tags/"),
     };

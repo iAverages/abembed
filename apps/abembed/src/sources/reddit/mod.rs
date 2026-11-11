@@ -3,8 +3,10 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, get_cached, html::Site, post_cache, put_cached, redirect, redirects_browser,
-    sized, warn, EmbedPost, HttpError, Providers, Source,
+    bad_request, get_cached,
+    html::{icon, Site},
+    post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost, HttpError,
+    Providers, Source,
 };
 use axum::{
     extract::{Path, State},
@@ -347,7 +349,10 @@ impl Source for RedditSource {
     const SITE: Site = Site {
         name: "Reddit",
         accent_color: 0xff4500,
-        stats: &[("⬆️", |stats| stats.likes), ("💬", |stats| stats.comments)],
+        stats: &[
+            (icon::UPVOTE, |stats| stats.likes),
+            (icon::COMMENT, |stats| stats.comments),
+        ],
         mention_url: None,
         hashtag_url: None,
     };
@@ -485,7 +490,7 @@ mod tests {
             .find(r#"**[@zepol_xela](https://www.reddit.com/user/zepol_xela/)**\n-# [r/osugame](https://www.reddit.com/r/osugame/)\nFurina in r/osugame? damn"#)
             .unwrap();
         let comment_footer = body
-            .find("⬆️ 1 · 💬 0 · [View on Reddit](https://www.reddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/)")
+            .find(r"\u003c:upvote:1570216024635347138> 1  \u003c:comment:1570216030788395029> 0  ·  [View on Reddit](https://www.reddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/)")
             .unwrap();
         let post_text = body
             .find(r#"**Replying to**\n**[@Novapierce_](https://www.reddit.com/user/Novapierce_/)**\n> **Title**\n> body"#)

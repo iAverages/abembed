@@ -4,8 +4,10 @@ mod page;
 mod translate;
 
 use super::{
-    bad_gateway, bad_request, html::Site, json_response, load_post, log, media_base, post_json,
-    warn, EmbedPost, HttpError, Media, ProviderResponse, Providers, Source, REGIONS,
+    bad_gateway, bad_request,
+    html::{icon, Site},
+    json_response, load_post, log, media_base, post_json, warn, EmbedPost, HttpError, Media,
+    ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{with_account, AccountFields, Attempt};
 use axum::{
@@ -307,10 +309,10 @@ impl Source for TwitterSource {
         name: "X / Twitter",
         accent_color: 0x1d9bf0,
         stats: &[
-            ("💬", |stats| stats.comments),
-            ("🔁", |stats| stats.shares),
-            ("❤️", |stats| stats.likes),
-            ("📊", |stats| stats.views),
+            (icon::COMMENT, |stats| stats.comments),
+            (icon::REPOST, |stats| stats.shares),
+            (icon::LIKE, |stats| stats.likes),
+            (icon::VIEWS, |stats| stats.views),
         ],
         mention_url: Some("https://x.com/"),
         hashtag_url: Some("https://x.com/hashtag/"),
@@ -648,7 +650,7 @@ mod tests {
             format!("{BASE}/EliasLou_st/status/{STATUS_ID}/avatar")
         );
         assert_eq!(components[1]["items"][0]["media"]["url"], media_route(0));
-        assert_eq!(components[2]["content"], format!("💬 3 · 🔁 4 · ❤️ 12 · [View on X / Twitter](https://x.com/MocaRelaxSpace/status/{STATUS_ID})"));
+        assert_eq!(components[2]["content"], format!("<:comment:1570216030788395029> 3  <:repost:1570216026900009021> 4  <:like:1570216034164801686> 12  ·  [View on X / Twitter](https://x.com/MocaRelaxSpace/status/{STATUS_ID})"));
         assert_eq!(components[3]["type"], 14);
         assert_eq!(
             components[4]["components"][0]["content"],

@@ -3,8 +3,10 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, get_cached, html::Site, merged_video_url, post_cache, put_cached, redirect,
-    redirects_browser, sized, warn, EmbedPost, HttpError, Providers, Source,
+    bad_request, get_cached,
+    html::{icon, Site},
+    merged_video_url, post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost,
+    HttpError, Providers, Source,
 };
 use axum::{
     extract::{Path, State},
@@ -231,9 +233,9 @@ impl Source for TikTokSource {
         name: "TikTok",
         accent_color: 0xfe2c55,
         stats: &[
-            ("❤️", |stats| stats.likes),
-            ("💬", |stats| stats.comments),
-            ("↪️", |stats| stats.shares),
+            (icon::LIKE, |stats| stats.likes),
+            (icon::COMMENT, |stats| stats.comments),
+            (icon::SHARE, |stats| stats.shares),
         ],
         mention_url: Some("https://www.tiktok.com/@"),
         hashtag_url: Some("https://www.tiktok.com/tag/"),
