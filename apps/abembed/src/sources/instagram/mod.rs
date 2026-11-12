@@ -59,6 +59,10 @@ pub fn get_router() -> Router<Env> {
             get(avatar_api),
         )
         .route("/api/instagram/{media_type}/{shortcode}", get(post_api))
+        .route(
+            "/api/instagram/{media_type}/{shortcode}/component",
+            get(component_api),
+        )
         // old link locations that do not returned anymore, kept to keep old embeds working
         .route(
             "/api/instagram/{media_type}/{shortcode}/media/{index}",
@@ -74,6 +78,16 @@ async fn post_api(
 ) -> Result<Response, HttpError> {
     let source = InstagramSource::new(&media_type, &shortcode)?;
     super::api(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn component_api(
+    State(env): State<Env>,
+    Path((media_type, shortcode)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = InstagramSource::new(&media_type, &shortcode)?;
+    super::component(&env, &source, &headers).await
 }
 
 #[worker::send]
@@ -310,6 +324,11 @@ mod tests {
             set_cookies: Vec::new(),
             body: body.to_string(),
         }
+    }
+
+    #[test]
+    fn registers_routes_without_conflicts() {
+        let _ = get_router();
     }
 
     #[test]

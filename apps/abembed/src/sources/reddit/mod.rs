@@ -69,10 +69,15 @@ pub fn get_router() -> Router<Env> {
                 router
                     .route(&format!("/reddit{path}"), get(embed))
                     .route(&format!("/api/reddit{path}"), get(post_api))
+                    .route(&format!("/api/reddit{path}/component"), get(component_api))
             },
         )
         .route("/reddit/r/{subreddit}/s/{code}", get(share_embed))
         .route("/api/reddit/r/{subreddit}/s/{code}", get(share_post_api))
+        .route(
+            "/api/reddit/r/{subreddit}/s/{code}/component",
+            get(share_component_api),
+        )
         .route(
             "/reddit/r/{subreddit}/comments/{id}/media/{index}",
             get(media_api),
@@ -150,6 +155,25 @@ async fn share_post_api(
 ) -> Result<Response, HttpError> {
     let source = resolve_share_link(&env, &subreddit, &code).await?;
     super::api(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn component_api(
+    State(env): State<Env>,
+    Path(path): Path<PostPath>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    super::component(&env, &path.source()?, &headers).await
+}
+
+#[worker::send]
+async fn share_component_api(
+    State(env): State<Env>,
+    Path((subreddit, code)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = resolve_share_link(&env, &subreddit, &code).await?;
+    super::component(&env, &source, &headers).await
 }
 
 fn share_url(subreddit: &str, code: &str) -> Result<String, HttpError> {
@@ -436,6 +460,11 @@ fn is_thing_id(id: &str) -> bool {
 mod tests {
     use super::fixtures::*;
     use super::*;
+
+    #[test]
+    fn registers_routes_without_conflicts() {
+        let _ = get_router();
+    }
 
     #[test]
     fn links_back_to_reddit_and_our_media_routes() {

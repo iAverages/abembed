@@ -60,6 +60,28 @@
                 }
             }
         },
+        "/api/facebook/{path}/component": {
+            "get": {
+                "tags": ["facebook"],
+                "summary": "Facebook post component json",
+                "description": "`path` takes the same shapes as `/facebook/{path}`.",
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "required": true,
+                        "description": "facebook.com post path, may contain slashes",
+                        "schema": { "type": "string" },
+                        "example": "share/p/19ABswRkjM"
+                    }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
         "/api/facebook/{path}/media/{index}": {
             "get": {
                 "tags": ["facebook"],
@@ -166,6 +188,31 @@
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "403": {
+                        "description": "The post is gated, e.g. age restricted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/instagram/{media_type}/{shortcode}/component": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Instagram post component json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramMediaType" },
+                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
                     "400": { "$ref": "#/components/responses/JsonError" },
                     "403": {
                         "description": "The post is gated, e.g. age restricted",
@@ -327,6 +374,36 @@
                 }
             }
         },
+        "/api/tiktok/{shortcode}/component": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "TikTok post component json for a short link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokShortcode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/tiktok/{username}/{post_type}/{id}/component": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "TikTok post component json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TikTokUsername" },
+                    { "$ref": "#/components/parameters/TikTokPostType" },
+                    { "$ref": "#/components/parameters/TikTokId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
         "/api/tiktok/{username}/{post_type}/{id}/media/{index}": {
             "get": {
                 "tags": ["tiktok"],
@@ -482,6 +559,54 @@
                 }
             }
         },
+        "/api/reddit/r/{subreddit}/comments/{id}/component": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit post component json",
+                "description": "Also served with the post slug after the id, as in reddit links.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/comment/{comment}/component": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit comment component json",
+                "description": "Also served as `/api/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}/component`.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/s/{code}/component": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit post or comment component json for a share link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditShareCode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
         "/twitter/{username}/status/{id}": {
             "get": {
                 "tags": ["twitter"],
@@ -603,6 +728,39 @@
                     "502": { "$ref": "#/components/responses/JsonError" }
                 }
             }
+        },
+        "/api/twitter/{username}/status/{id}/component": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "X/Twitter status component json",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/twitter/{username}/status/{id}/{language}/component": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "X/Twitter status component json with a translation",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/Language" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
         }
     },
     "components": {
@@ -714,6 +872,23 @@
             "DiscordEmbed": {
                 "description": "Component embed html for posts that don't redirect to their only media",
                 "content": { "text/html": { "schema": { "type": "string" } } }
+            },
+            "Component": {
+                "description": "The json Discord reads from the embed html, also returned for posts whose embed redirects to their only media",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["component"],
+                            "properties": {
+                                "component": {
+                                    "type": "object",
+                                    "description": "Discord container component"
+                                }
+                            }
+                        }
+                    }
+                }
             },
             "Redirect": {
                 "description": "Redirect to the original post for browsers, otherwise to the post's only media",

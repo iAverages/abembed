@@ -99,6 +99,11 @@ async fn media(
 #[worker::send]
 async fn api(State(env): State<Env>, uri: Uri, headers: HeaderMap) -> Result<Response, HttpError> {
     let path = uri.path().strip_prefix("/api/facebook").unwrap_or_default();
+    if let Some(path) = path.strip_suffix("/component") {
+        let source = FacebookSource::new(path, uri.query())?;
+        return super::component(&env, &source, &headers).await;
+    }
+
     // media route was moved to outside /api, here to keep old links working
     match media_route(path) {
         Some((path, media)) => {

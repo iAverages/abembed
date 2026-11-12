@@ -48,6 +48,14 @@ pub fn get_router() -> Router<Env> {
         )
         .route("/api/tiktok/{shortcode}", get(short_post_api))
         .route("/api/tiktok/{username}/{post_type}/{id}", get(post_api))
+        .route(
+            "/api/tiktok/{shortcode}/component",
+            get(short_component_api),
+        )
+        .route(
+            "/api/tiktok/{username}/{post_type}/{id}/component",
+            get(component_api),
+        )
         // old link locations that do not returned anymore, kept to keep old embeds working
         .route(
             "/api/tiktok/{username}/{post_type}/{id}/media/{index}",
@@ -99,6 +107,26 @@ async fn short_post_api(
 ) -> Result<Response, HttpError> {
     let source = resolve_short_link(&env, &shortcode).await?;
     super::api(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn component_api(
+    State(env): State<Env>,
+    Path((username, post_type, id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = TikTokSource::new(&username, &post_type, &id)?;
+    super::component(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn short_component_api(
+    State(env): State<Env>,
+    Path(shortcode): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = resolve_short_link(&env, &shortcode).await?;
+    super::component(&env, &source, &headers).await
 }
 
 #[worker::send]
@@ -307,6 +335,11 @@ impl Source for TikTokSource {
 mod tests {
     use super::fixtures::*;
     use super::*;
+
+    #[test]
+    fn registers_routes_without_conflicts() {
+        let _ = get_router();
+    }
 
     #[test]
     fn identifies_tiktok_post_links() {

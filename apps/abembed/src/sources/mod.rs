@@ -9,7 +9,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use html::{discord_image_post_html, Site};
+use html::{discord_component_json, discord_image_post_html, Site};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{cell::Cell, iter};
@@ -195,6 +195,32 @@ pub async fn api<S: Source>(
         &source.avatar_url(&base),
     );
     Ok(json_response(StatusCode::OK, &post))
+}
+
+pub async fn component<S: Source>(
+    env: &Env,
+    source: &S,
+    headers: &HeaderMap,
+) -> Result<Response, HttpError> {
+    let post = load_post(env, source).await?;
+    if let Some(error) = gated_error(&post).filter(|_| S::GATED_WHEN_EMPTY) {
+        return Err(error);
+    }
+    let base = media_base(S::HOSTS, S::PLATFORM, headers);
+    let component = discord_component_json(
+        &S::SITE,
+        &post,
+        |index| source.media_url(&base, &media_file(&post, index)),
+        |index| source.entry_avatar_url(&base, index),
+    );
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        component,
+    )
+        .into_response())
 }
 
 pub fn gated_error(post: &EmbedPost) -> Option<HttpError> {

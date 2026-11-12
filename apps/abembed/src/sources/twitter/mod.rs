@@ -85,6 +85,14 @@ pub fn get_router() -> Router<Env> {
             "/api/twitter/{username}/status/{id}/{language}",
             get(translated_post_api),
         )
+        .route(
+            "/api/twitter/{username}/status/{id}/component",
+            get(component_api),
+        )
+        .route(
+            "/api/twitter/{username}/status/{id}/{language}/component",
+            get(translated_component_api),
+        )
 }
 
 #[worker::send]
@@ -163,6 +171,26 @@ async fn translated_post_api(
 ) -> Result<Response, HttpError> {
     let source = TwitterSource::new(&username, &id, Some(&language))?;
     status_api(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn component_api(
+    State(env): State<Env>,
+    Path((username, id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = TwitterSource::new(&username, &id, None)?;
+    super::component(&env, &source, &headers).await
+}
+
+#[worker::send]
+async fn translated_component_api(
+    State(env): State<Env>,
+    Path((username, id, language)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let source = TwitterSource::new(&username, &id, Some(&language))?;
+    super::component(&env, &source, &headers).await
 }
 
 async fn status_api(

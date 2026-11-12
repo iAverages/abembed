@@ -87,7 +87,7 @@ pub fn html_response(body: String) -> Response {
         .into_response()
 }
 
-pub fn discord_image_post_html(
+pub fn discord_component_json(
     site: &Site,
     embed: &EmbedPost,
     media_url: impl Fn(usize) -> String,
@@ -135,7 +135,16 @@ pub fn discord_image_post_html(
             high = middle - 1;
         }
     }
-    let component = component_json(low);
+    component_json(low)
+}
+
+pub fn discord_image_post_html(
+    site: &Site,
+    embed: &EmbedPost,
+    media_url: impl Fn(usize) -> String,
+    avatar_url: impl Fn(usize) -> String,
+) -> String {
+    let component = discord_component_json(site, embed, &media_url, avatar_url);
     let author_name = embed
         .author
         .as_ref()
@@ -425,9 +434,7 @@ mod tests {
     }
 
     fn component_json(embed: &EmbedPost) -> String {
-        let body = discord_image_post_html(&SITE, embed, |_| String::new(), |_| String::new());
-        let (_, rest) = body.split_once(r#"type="application/json">"#).unwrap();
-        rest.split_once("</script>").unwrap().0.to_string()
+        discord_component_json(&SITE, embed, |_| String::new(), |_| String::new())
     }
 
     #[test]
