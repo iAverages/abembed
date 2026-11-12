@@ -6,8 +6,8 @@ mod translate;
 use super::{
     bad_gateway, bad_request,
     html::{icon, Site},
-    json_response, load_post, log, media_base, post_json, warn, EmbedPost, HttpError, Media,
-    ProviderResponse, Providers, Source, REGIONS,
+    json_response, load_post, log, media_base, media_file, post_json, warn, EmbedPost, HttpError,
+    Media, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{with_account, AccountFields, Attempt};
 use axum::{
@@ -121,10 +121,10 @@ async fn translated_media(
 #[worker::send]
 async fn media_api(
     State(env): State<Env>,
-    Path((username, id, index)): Path<(String, String, usize)>,
+    Path((username, id, media)): Path<(String, String, String)>,
 ) -> Result<Response, HttpError> {
     let source = TwitterSource::new(&username, &id, None)?;
-    super::media(&env, &source, index).await
+    super::media(&env, &source, &media).await
 }
 
 #[worker::send]
@@ -215,7 +215,7 @@ impl TwitterSource {
         let mut entry_json = |entry: &EmbedPost| {
             let mut json = post_json(
                 entry,
-                |media| self.media_url(base, offset + media),
+                |media| self.media_url(base, &media_file(post, offset + media)),
                 &self.entry_avatar_url(base, index),
             );
             json["translation"] = json!(entry.translation);
@@ -335,8 +335,8 @@ impl Source for TwitterSource {
         status_url(&self.username, &self.id)
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String {
-        format!("{base}/{}/status/{}/media/{index}", self.username, self.id)
+    fn media_url(&self, base: &str, media: &str) -> String {
+        format!("{base}/{}/status/{}/media/{media}", self.username, self.id)
     }
 
     fn avatar_url(&self, base: &str) -> String {

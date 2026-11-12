@@ -79,10 +79,10 @@ async fn post_api(
 #[worker::send]
 async fn media_api(
     State(env): State<Env>,
-    Path((media_type, shortcode, index)): Path<(String, String, usize)>,
+    Path((media_type, shortcode, media)): Path<(String, String, String)>,
 ) -> Result<Response, HttpError> {
     let source = InstagramSource::new(&media_type, &shortcode)?;
-    super::media(&env, &source, index).await
+    super::media(&env, &source, &media).await
 }
 
 #[worker::send]
@@ -221,9 +221,9 @@ impl Source for InstagramSource {
         )
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String {
+    fn media_url(&self, base: &str, media: &str) -> String {
         format!(
-            "{base}/{}/{}/media/{index}",
+            "{base}/{}/{}/media/{media}",
             self.media_type, self.shortcode
         )
     }

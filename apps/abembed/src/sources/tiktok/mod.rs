@@ -104,10 +104,10 @@ async fn short_post_api(
 #[worker::send]
 async fn media_api(
     State(env): State<Env>,
-    Path((username, post_type, id, index)): Path<(String, String, String, usize)>,
+    Path((username, post_type, id, media)): Path<(String, String, String, String)>,
 ) -> Result<Response, HttpError> {
     let source = TikTokSource::new(&username, &post_type, &id)?;
-    super::media(&env, &source, index).await
+    super::media(&env, &source, &media).await
 }
 
 #[worker::send]
@@ -258,9 +258,9 @@ impl Source for TikTokSource {
         )
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String {
+    fn media_url(&self, base: &str, media: &str) -> String {
         format!(
-            "{base}/@{}/{}/{}/media/{index}",
+            "{base}/@{}/{}/{}/media/{media}",
             self.username, self.post_type, self.id
         )
     }
@@ -336,7 +336,7 @@ mod tests {
 
         assert_eq!(with_at.source_url(), without_at.source_url());
         assert_eq!(
-            with_at.media_url("https://abembed.com/tiktok", 0),
+            with_at.media_url("https://abembed.com/tiktok", "0"),
             format!("https://abembed.com/tiktok/@kopilawak/video/{VIDEO_ID}/media/0")
         );
     }

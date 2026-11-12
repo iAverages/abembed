@@ -107,7 +107,7 @@ struct MediaPath {
     subreddit: String,
     id: String,
     comment: Option<String>,
-    index: usize,
+    index: String,
 }
 
 #[worker::send]
@@ -188,7 +188,7 @@ async fn media_api(
     Path(path): Path<MediaPath>,
 ) -> Result<Response, HttpError> {
     let source = RedditSource::new(&path.subreddit, &path.id, None, path.comment.as_deref())?;
-    super::media(&env, &source, path.index).await
+    super::media(&env, &source, &path.index).await
 }
 
 #[derive(Clone)]
@@ -399,8 +399,8 @@ impl Source for RedditSource {
         format!("https://www.reddit.com{}", self.path())
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String {
-        format!("{base}{}media/{index}", self.path())
+    fn media_url(&self, base: &str, media: &str) -> String {
+        format!("{base}{}media/{media}", self.path())
     }
 
     // reddit embeds have no author avatars - ABE-23
@@ -444,8 +444,8 @@ mod tests {
             "https://www.reddit.com/r/osugame/comments/1xm08ih/"
         );
         assert_eq!(
-            comment_source().media_url("https://abreddit.com", 0),
-            "https://abreddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/media/0"
+            comment_source().media_url("https://abreddit.com", "0.gif"),
+            "https://abreddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/media/0.gif"
         );
     }
 

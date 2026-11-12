@@ -77,11 +77,11 @@ async fn media(
 ) -> Result<Response, HttpError> {
     let path = uri.path().strip_prefix("/facebook").unwrap_or_default();
 
-    let direct = media_index(path)
-        .and_then(|(path, index)| Some((FacebookSource::new(path, uri.query()).ok()?, index)));
+    let direct = media_route(path)
+        .and_then(|(path, media)| Some((FacebookSource::new(path, uri.query()).ok()?, media)));
 
-    if let Some((source, index)) = direct {
-        return super::media(&env, &source, index).await;
+    if let Some((source, media)) = direct {
+        return super::media(&env, &source, media).await;
     }
 
     let avatar = path
@@ -100,10 +100,10 @@ async fn media(
 async fn api(State(env): State<Env>, uri: Uri, headers: HeaderMap) -> Result<Response, HttpError> {
     let path = uri.path().strip_prefix("/api/facebook").unwrap_or_default();
     // media route was moved to outside /api, here to keep old links working
-    match media_index(path) {
-        Some((path, index)) => {
+    match media_route(path) {
+        Some((path, media)) => {
             let source = FacebookSource::new(path, uri.query())?;
-            super::media(&env, &source, index).await
+            super::media(&env, &source, media).await
         }
         None => {
             let source = FacebookSource::new(path, uri.query())?;
@@ -112,9 +112,10 @@ async fn api(State(env): State<Env>, uri: Uri, headers: HeaderMap) -> Result<Res
     }
 }
 
-fn media_index(path: &str) -> Option<(&str, usize)> {
-    let (path, index) = path.rsplit_once('/')?;
-    Some((path.strip_suffix("/media")?, index.parse().ok()?))
+fn media_route(path: &str) -> Option<(&str, &str)> {
+    let (path, media) = path.rsplit_once('/')?;
+    super::media_index(media)?;
+    Some((path.strip_suffix("/media")?, media))
 }
 
 pub struct FacebookSource {
@@ -308,8 +309,8 @@ impl Source for FacebookSource {
         )
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String {
-        format!("{base}/{}/media/{index}{}", self.path, self.query_string())
+    fn media_url(&self, base: &str, media: &str) -> String {
+        format!("{base}/{}/media/{media}{}", self.path, self.query_string())
     }
 
     fn avatar_url(&self, base: &str) -> String {
@@ -598,15 +599,16 @@ mod tests {
             "https://www.facebook.com/permalink.php?story_fbid=pfbid0Xy9&id=61586293416608",
         ] {
             let source = source(link);
-            let api_url = Url::parse(&source.media_url("https://abembed.com/facebook", 2)).unwrap();
+            let api_url =
+                Url::parse(&source.media_url("https://abembed.com/facebook", "2.gif")).unwrap();
             let path = api_url.path().strip_prefix("/facebook").unwrap();
-            let (path, index) = media_index(path).expect(link);
+            let (path, media) = media_route(path).expect(link);
             let routed = FacebookSource::new(path, api_url.query()).unwrap();
 
-            assert_eq!(index, 2);
+            assert_eq!(media, "2.gif");
             assert_eq!(routed.source_url(), link);
         }
-        assert!(media_index("/kuli.y.mas/posts/1405946908140934").is_none());
+        assert!(media_route("/kuli.y.mas/posts/1405946908140934").is_none());
     }
 
     fn page(status: u16, body: &str) -> ProviderResponse {

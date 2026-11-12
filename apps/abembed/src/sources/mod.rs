@@ -97,7 +97,7 @@ pub trait Source {
         self.source_url()
     }
 
-    fn media_url(&self, base: &str, index: usize) -> String;
+    fn media_url(&self, base: &str, media: &str) -> String;
     fn avatar_url(&self, base: &str) -> String;
 
     // avatars of the posts shown under this one, by their place in `EmbedPost::entries`
@@ -120,9 +120,23 @@ pub fn gallery_html<S: Source + ?Sized>(source: &S, post: &EmbedPost, base: &str
     discord_image_post_html(
         &S::SITE,
         post,
-        |index| source.media_url(base, index),
+        |index| source.media_url(base, &media_file(post, index)),
         |index| source.entry_avatar_url(base, index),
     )
+}
+
+pub fn media_file(post: &EmbedPost, index: usize) -> String {
+    let extension = post.all_media().nth(index).and_then(|media| {
+        let url = Url::parse(&media.url).ok()?;
+        [".gif", ".webp"]
+            .into_iter()
+            .find(|extension| url.path().ends_with(extension))
+    });
+    format!("{index}{}", extension.unwrap_or_default())
+}
+
+pub fn media_index(file: &str) -> Option<usize> {
+    file.split('.').next()?.parse().ok()
 }
 
 pub async fn embed<S: Source>(
@@ -141,12 +155,11 @@ pub async fn embed<S: Source>(
     }))
 }
 
-pub async fn media(env: &Env, source: &impl Source, index: usize) -> Result<Response, HttpError> {
+pub async fn media(env: &Env, source: &impl Source, file: &str) -> Result<Response, HttpError> {
+    let not_found = || HttpError(StatusCode::NOT_FOUND, "Media not found".to_string());
+    let index = media_index(file).ok_or_else(not_found)?;
     let post = load_post(env, source).await?;
-    let media = post.all_media().nth(index).ok_or(HttpError(
-        StatusCode::NOT_FOUND,
-        "Media not found".to_string(),
-    ))?;
+    let media = post.all_media().nth(index).ok_or_else(not_found)?;
 
     Ok(redirect(&media.url))
 }
@@ -178,7 +191,7 @@ pub async fn api<S: Source>(
     let base = media_base(S::HOSTS, S::PLATFORM, headers);
     let post = post_json(
         &post,
-        |index| source.media_url(&base, index),
+        |index| source.media_url(&base, &media_file(&post, index)),
         &source.avatar_url(&base),
     );
     Ok(json_response(StatusCode::OK, &post))
@@ -812,6 +825,33 @@ mod tests {
             quote: None,
             translation: None,
         }
+    }
+
+    #[test]
+    fn media_links_end_in_the_extension_of_animated_images() {
+        let mut embed = post(&[
+            "https://i.redd.it/nhvtlii5suxh1.gif",
+            "https://i.redd.it/v1eq2vzfk1zh1.jpeg",
+        ]);
+        embed.reply_to = Some(Box::new(post(&[
+            "https://gif.abembed.com/tweet_video/HTNOycZXIAAn9i8.webp?s=1",
+            "https://packaged-media.redd.it/a/m2-res_720p.mp4?m=DASHPlaylist.mpd",
+        ])));
+
+        assert_eq!(
+            (0..5)
+                .map(|index| media_file(&embed, index))
+                .collect::<Vec<_>>(),
+            ["0.gif", "1", "2.webp", "3", "4"]
+        );
+    }
+
+    #[test]
+    fn media_links_route_with_or_without_an_extension() {
+        assert_eq!(media_index("2"), Some(2));
+        assert_eq!(media_index("2.webp"), Some(2));
+        assert_eq!(media_index("webp"), None);
+        assert_eq!(media_index(""), None);
     }
 
     fn host(value: &str) -> HeaderMap {
