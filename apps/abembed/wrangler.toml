@@ -118,13 +118,13 @@ routes = [
   { pattern = "www.abembed.com", custom_domain = true },
 
   # wrangler preview deployments
-  { pattern = "previews.abembed.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abfacebook.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abfixx.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abinstagram.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abreddit.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abtiktok.com", custom_domain = true, enable = false, previews_enabled = true },
-  { pattern = "previews.abtwitter.com", custom_domain = true, enable = false, previews_enabled = true },
+  { pattern = "previews.abembed.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abfacebook.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abfixx.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abinstagram.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abreddit.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abtiktok.com", custom_domain = true, enabled = false, previews_enabled = true },
+  { pattern = "previews.abtwitter.com", custom_domain = true, enabled = false, previews_enabled = true },
 ]
 
 [env.production.ai]
