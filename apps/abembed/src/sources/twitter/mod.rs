@@ -6,12 +6,12 @@ mod translate;
 use super::{
     bad_gateway, bad_request,
     html::{icon, Site},
-    json_response, load_post, log, media_base, media_file, post_json, warn, EmbedPost, HttpError,
-    Media, ProviderResponse, Providers, Source, REGIONS,
+    json_response, load_post, log, media_base, media_file, post_json, warn, ComponentQuery,
+    EmbedPost, HttpError, Media, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{with_account, AccountFields, Attempt};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Response,
     routing::get,
@@ -177,20 +177,22 @@ async fn translated_post_api(
 async fn component_api(
     State(env): State<Env>,
     Path((username, id)): Path<(String, String)>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = TwitterSource::new(&username, &id, None)?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 #[worker::send]
 async fn translated_component_api(
     State(env): State<Env>,
     Path((username, id, language)): Path<(String, String, String)>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = TwitterSource::new(&username, &id, Some(&language))?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 async fn status_api(

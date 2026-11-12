@@ -5,11 +5,11 @@ mod page;
 use super::{
     bad_request, get_cached,
     html::{icon, Site},
-    post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost, HttpError, Media,
-    Providers, Source,
+    post_cache, put_cached, redirect, redirects_browser, sized, warn, ComponentQuery, EmbedPost,
+    HttpError, Media, Providers, Source,
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::Response,
     routing::get,
@@ -161,19 +161,21 @@ async fn share_post_api(
 async fn component_api(
     State(env): State<Env>,
     Path(path): Path<PostPath>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    super::component(&env, &path.source()?, &headers).await
+    super::component(&env, &path.source()?, &headers, &query).await
 }
 
 #[worker::send]
 async fn share_component_api(
     State(env): State<Env>,
     Path((subreddit, code)): Path<(String, String)>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = resolve_share_link(&env, &subreddit, &code).await?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 fn share_url(subreddit: &str, code: &str) -> Result<String, HttpError> {

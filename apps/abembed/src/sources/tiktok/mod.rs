@@ -5,11 +5,11 @@ mod page;
 use super::{
     bad_request, get_cached,
     html::{icon, Site},
-    merged_video_url, post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost,
-    HttpError, Providers, Source,
+    merged_video_url, post_cache, put_cached, redirect, redirects_browser, sized, warn,
+    ComponentQuery, EmbedPost, HttpError, Providers, Source,
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::Response,
     routing::get,
@@ -113,20 +113,22 @@ async fn short_post_api(
 async fn component_api(
     State(env): State<Env>,
     Path((username, post_type, id)): Path<(String, String, String)>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = TikTokSource::new(&username, &post_type, &id)?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 #[worker::send]
 async fn short_component_api(
     State(env): State<Env>,
     Path(shortcode): Path<String>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = resolve_short_link(&env, &shortcode).await?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 #[worker::send]

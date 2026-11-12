@@ -5,11 +5,11 @@ mod page;
 use super::{
     bad_gateway, bad_request,
     html::{icon, Site},
-    log, warn, EmbedPost, HttpError, ProviderResponse, Providers, Source, REGIONS,
+    log, warn, ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, Uri},
     response::Response,
     routing::get,
@@ -97,11 +97,16 @@ async fn media(
 }
 
 #[worker::send]
-async fn api(State(env): State<Env>, uri: Uri, headers: HeaderMap) -> Result<Response, HttpError> {
+async fn api(
+    State(env): State<Env>,
+    uri: Uri,
+    Query(query): Query<ComponentQuery>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
     let path = uri.path().strip_prefix("/api/facebook").unwrap_or_default();
     if let Some(path) = path.strip_suffix("/component") {
         let source = FacebookSource::new(path, uri.query())?;
-        return super::component(&env, &source, &headers).await;
+        return super::component(&env, &source, &headers, &query).await;
     }
 
     // media route was moved to outside /api, here to keep old links working

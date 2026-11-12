@@ -5,11 +5,11 @@ mod page;
 use super::{
     bad_request, gallery_html,
     html::{escape_html, icon, meta_name, meta_property, Site},
-    log, EmbedPost, HttpError, ProviderResponse, Providers, Source,
+    log, ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::Response,
     routing::get,
@@ -84,10 +84,11 @@ async fn post_api(
 async fn component_api(
     State(env): State<Env>,
     Path((media_type, shortcode)): Path<(String, String)>,
+    Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let source = InstagramSource::new(&media_type, &shortcode)?;
-    super::component(&env, &source, &headers).await
+    super::component(&env, &source, &headers, &query).await
 }
 
 #[worker::send]

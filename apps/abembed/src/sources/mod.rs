@@ -9,7 +9,10 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use html::{discord_component_json, discord_image_post_html, Site};
+use html::{
+    discord_component_json, discord_image_post_html, Site, MEDIA_GALLERY_ITEM_LIMIT,
+    MESSAGE_MEDIA_LIMIT,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{cell::Cell, iter};
@@ -197,10 +200,16 @@ pub async fn api<S: Source>(
     Ok(json_response(StatusCode::OK, &post))
 }
 
+#[derive(Deserialize)]
+pub struct ComponentQuery {
+    media_limit: Option<usize>,
+}
+
 pub async fn component<S: Source>(
     env: &Env,
     source: &S,
     headers: &HeaderMap,
+    query: &ComponentQuery,
 ) -> Result<Response, HttpError> {
     let post = load_post(env, source).await?;
     if let Some(error) = gated_error(&post).filter(|_| S::GATED_WHEN_EMPTY) {
@@ -210,6 +219,10 @@ pub async fn component<S: Source>(
     let component = discord_component_json(
         &S::SITE,
         &post,
+        query
+            .media_limit
+            .unwrap_or(MEDIA_GALLERY_ITEM_LIMIT)
+            .min(MESSAGE_MEDIA_LIMIT),
         |index| source.media_url(&base, &media_file(&post, index)),
         |index| source.entry_avatar_url(&base, index),
     );

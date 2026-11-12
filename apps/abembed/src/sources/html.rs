@@ -1,15 +1,21 @@
-use super::{author_name, Author, EmbedPost, MediaKind, Stats};
+use super::{author_name, objects, Author, EmbedPost, MediaKind, Stats};
 use axum::{
     http::header,
     response::{IntoResponse, Response},
 };
 use regex::{Captures, Regex};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::sync::LazyLock;
 use worker::Url;
 
-// discord allows for 10 media gallery items
-const MEDIA_GALLERY_ITEM_LIMIT: usize = 10;
+// discord allows for 10 media gallery items, in a gallery and across a component embed
+pub const MEDIA_GALLERY_ITEM_LIMIT: usize = 10;
+// discord allows for 40 components in a message, counting the nested ones
+const MESSAGE_COMPONENT_LIMIT: usize = 40;
+// discord allows for 4000 characters across the text of a bot's message
+const MESSAGE_TEXT_LIMIT: usize = 4000;
+// a discord bots message with a full gallery for every component but the container and the footer
+pub const MESSAGE_MEDIA_LIMIT: usize = (MESSAGE_COMPONENT_LIMIT - 2) * MEDIA_GALLERY_ITEM_LIMIT;
 // discord allows for 1024 characters of alt text on a media gallery item
 const MEDIA_ALT_LIMIT: usize = 1024;
 // discord allows for 4 images in open graph, although component embeds are used over this now
@@ -90,10 +96,11 @@ pub fn html_response(body: String) -> Response {
 pub fn discord_component_json(
     site: &Site,
     embed: &EmbedPost,
+    media_limit: usize,
     media_url: impl Fn(usize) -> String,
     avatar_url: impl Fn(usize) -> String,
 ) -> String {
-    let component_json = |description_limit: usize| {
+    let component = |media_limit: usize, description_limit: usize| {
         let mut components = Vec::new();
         let mut offset = 0;
         for (index, (label, post)) in embed.entries().enumerate() {
@@ -110,6 +117,7 @@ pub fn discord_component_json(
                 label,
                 post,
                 description_limit,
+                media_limit.saturating_sub(offset),
                 |media_index| media_url(offset + media_index),
                 avatar.as_deref(),
             ));
@@ -122,20 +130,48 @@ pub fn discord_component_json(
                 "components": components,
             },
         })
-        .to_string()
-        .replace('<', "\\u003c")
     };
-    // the longest description length, in characters, that keeps the json within the byte limit
-    let (mut low, mut high) = (0, COMPONENT_EMBED_BYTE_LIMIT);
+
+    let to_json = |component: &Value| component.to_string().replace('<', "\\u003c");
+    let fits = |component: &Value| match media_limit > MEDIA_GALLERY_ITEM_LIMIT {
+        true => text_length(component) <= MESSAGE_TEXT_LIMIT,
+        false => to_json(component).len() <= COMPONENT_EMBED_BYTE_LIMIT,
+    };
+
+    let media_limit = highest(media_limit, |limit| {
+        nested_components(&component(limit, usize::MAX)).count() <= MESSAGE_COMPONENT_LIMIT
+    });
+
+    let description_limit = highest(MESSAGE_TEXT_LIMIT, |limit| {
+        fits(&component(media_limit, limit))
+    });
+
+    to_json(&component(media_limit, description_limit))
+}
+
+// the highest value that fits, when every value below one that fits does too
+fn highest(limit: usize, fits: impl Fn(usize) -> bool) -> usize {
+    let (mut low, mut high) = (0, limit);
     while low < high {
         let middle = (low + high).div_ceil(2);
-        if component_json(middle).len() <= COMPONENT_EMBED_BYTE_LIMIT {
+        if fits(middle) {
             low = middle;
         } else {
             high = middle - 1;
         }
     }
-    component_json(low)
+    low
+}
+
+fn nested_components(component: &Value) -> impl Iterator<Item = &Map<String, Value>> {
+    objects(component).filter(|object| object.contains_key("type"))
+}
+
+fn text_length(component: &Value) -> usize {
+    nested_components(component)
+        .filter_map(|component| component.get("content")?.as_str())
+        .map(|content| content.chars().count())
+        .sum()
 }
 
 pub fn discord_image_post_html(
@@ -144,7 +180,13 @@ pub fn discord_image_post_html(
     media_url: impl Fn(usize) -> String,
     avatar_url: impl Fn(usize) -> String,
 ) -> String {
-    let component = discord_component_json(site, embed, &media_url, avatar_url);
+    let component = discord_component_json(
+        site,
+        embed,
+        MEDIA_GALLERY_ITEM_LIMIT,
+        &media_url,
+        avatar_url,
+    );
     let author_name = embed
         .author
         .as_ref()
@@ -163,6 +205,7 @@ fn post_components(
     label: Option<&str>,
     post: &EmbedPost,
     description_limit: usize,
+    media_limit: usize,
     media_url: impl Fn(usize) -> String,
     avatar: Option<&str>,
 ) -> Vec<Value> {
@@ -222,7 +265,7 @@ fn post_components(
     let mut media = post
         .media
         .iter()
-        .take(MEDIA_GALLERY_ITEM_LIMIT)
+        .take(media_limit)
         .enumerate()
         .map(|(index, media)| {
             let mut item = json!({ "media": { "url": media_url(index) } });
@@ -245,9 +288,11 @@ fn post_components(
     }
 
     let gallery: Vec<Value> = media.collect();
-    if !gallery.is_empty() {
-        components.push(json!({ "type": 12, "items": gallery }));
-    }
+    components.extend(
+        gallery
+            .chunks(MEDIA_GALLERY_ITEM_LIMIT)
+            .map(|items| json!({ "type": 12, "items": items })),
+    );
 
     let stats = post.stats.clone().unwrap_or_default();
     let counts = site
@@ -434,7 +479,13 @@ mod tests {
     }
 
     fn component_json(embed: &EmbedPost) -> String {
-        discord_component_json(&SITE, embed, |_| String::new(), |_| String::new())
+        discord_component_json(
+            &SITE,
+            embed,
+            MEDIA_GALLERY_ITEM_LIMIT,
+            |_| String::new(),
+            |_| String::new(),
+        )
     }
 
     #[test]
@@ -535,9 +586,8 @@ mod tests {
         assert!(body.contains("> to [@someone](https://example.com/@someone)"));
     }
 
-    fn components(description: &str, media: usize) -> Vec<(u64, String)> {
-        let mut embed = post(description, None);
-        embed.media = (0..media)
+    fn images(count: usize) -> Vec<Media> {
+        (0..count)
             .map(|_| Media {
                 kind: MediaKind::Image,
                 url: String::new(),
@@ -545,16 +595,24 @@ mod tests {
                 height: None,
                 alt: None,
             })
-            .collect();
+            .collect()
+    }
 
-        let body = discord_image_post_html(
+    fn components(description: &str, media: usize) -> Vec<(u64, String)> {
+        let mut embed = post(description, None);
+        embed.media = images(media);
+        limited_components(&embed, MEDIA_GALLERY_ITEM_LIMIT)
+    }
+
+    fn limited_components(embed: &EmbedPost, media_limit: usize) -> Vec<(u64, String)> {
+        let json = discord_component_json(
             &SITE,
-            &embed,
+            embed,
+            media_limit,
             |index| format!("m{index}"),
             |_| String::new(),
         );
-        let (_, rest) = body.split_once(r#"type="application/json">"#).unwrap();
-        let json: Value = serde_json::from_str(rest.split_once("</script>").unwrap().0).unwrap();
+        let json: Value = serde_json::from_str(&json).unwrap();
 
         json["component"]["components"]
             .as_array()
@@ -570,7 +628,7 @@ mod tests {
                 let content = component["content"].as_str().map(str::to_string);
                 (
                     component["type"].as_u64().unwrap(),
-                    urls.or(content).unwrap(),
+                    urls.or(content).unwrap_or_default(),
                 )
             })
             .collect()
@@ -605,6 +663,60 @@ mod tests {
                 (10, FOOTER.to_string()),
             ]
         );
+    }
+
+    fn urls(media: std::ops::Range<usize>) -> String {
+        let urls = media.map(|index| format!("m{index}"));
+        urls.collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn the_media_limit_is_shared_with_the_post_replied_to() {
+        let mut embed = post("reply", Some(post("replied to", None)));
+        embed.media = images(8);
+        embed.reply_to.as_mut().unwrap().media = images(8);
+        let galleries: Vec<_> = limited_components(&embed, MEDIA_GALLERY_ITEM_LIMIT)
+            .into_iter()
+            .filter(|(kind, _)| *kind == 12)
+            .collect();
+
+        assert_eq!(galleries, [(12, urls(0..8)), (12, urls(8..10))]);
+    }
+
+    #[test]
+    fn media_over_a_gallery_fills_more_galleries() {
+        let mut embed = post("text", None);
+        embed.media = images(30);
+
+        assert_eq!(
+            limited_components(&embed, 25),
+            [
+                (10, "text".to_string()),
+                (12, urls(0..10)),
+                (12, urls(10..20)),
+                (12, urls(20..25)),
+                (10, FOOTER.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn bot_messages_fill_the_text_limit_instead_of_the_byte_limit() {
+        let embed = post(&"lorem ipsum ".repeat(500), None);
+        let components = limited_components(&embed, MESSAGE_MEDIA_LIMIT);
+        let text: usize = components.iter().map(|(_, text)| text.len()).sum();
+
+        assert_eq!(text, MESSAGE_TEXT_LIMIT);
+    }
+
+    #[test]
+    fn media_is_left_out_before_a_message_has_too_many_components() {
+        let mut embed = post(&format!("{INLINE_MEDIA}text").repeat(30), None);
+        embed.media = images(MESSAGE_MEDIA_LIMIT);
+        let components = limited_components(&embed, MESSAGE_MEDIA_LIMIT);
+
+        // the container is a component too
+        assert_eq!(components.len(), MESSAGE_COMPONENT_LIMIT - 1);
     }
 
     #[test]

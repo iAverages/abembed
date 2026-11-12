@@ -14,6 +14,36 @@
         { "name": "twitter" }
     ],
     "paths": {
+        "/": {
+            "get": {
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
+                }
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "summary": "This document",
+                "responses": {
+                    "200": {
+                        "description": "The OpenAPI description of abembed",
+                        "content": {
+                            "application/json": { "schema": { "type": "object" } }
+                        }
+                    }
+                }
+            }
+        },
+        "/facebook": {
+            "get": {
+                "tags": ["facebook"],
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
+                }
+            }
+        },
         "/facebook/{path}": {
             "get": {
                 "tags": ["facebook"],
@@ -73,7 +103,8 @@
                         "description": "facebook.com post path, may contain slashes",
                         "schema": { "type": "string" },
                         "example": "share/p/19ABswRkjM"
-                    }
+                    },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -103,6 +134,15 @@
                     "400": { "$ref": "#/components/responses/JsonError" },
                     "404": { "$ref": "#/components/responses/JsonError" },
                     "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
                 }
             }
         },
@@ -209,7 +249,8 @@
                 "summary": "Instagram post component json",
                 "parameters": [
                     { "$ref": "#/components/parameters/InstagramMediaType" },
-                    { "$ref": "#/components/parameters/InstagramShortcode" }
+                    { "$ref": "#/components/parameters/InstagramShortcode" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -244,6 +285,15 @@
                     "400": { "$ref": "#/components/responses/JsonError" },
                     "404": { "$ref": "#/components/responses/JsonError" },
                     "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/tiktok": {
+            "get": {
+                "tags": ["tiktok"],
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
                 }
             }
         },
@@ -379,7 +429,8 @@
                 "tags": ["tiktok"],
                 "summary": "TikTok post component json for a short link",
                 "parameters": [
-                    { "$ref": "#/components/parameters/TikTokShortcode" }
+                    { "$ref": "#/components/parameters/TikTokShortcode" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -395,7 +446,8 @@
                 "parameters": [
                     { "$ref": "#/components/parameters/TikTokUsername" },
                     { "$ref": "#/components/parameters/TikTokPostType" },
-                    { "$ref": "#/components/parameters/TikTokId" }
+                    { "$ref": "#/components/parameters/TikTokId" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -424,11 +476,19 @@
                 }
             }
         },
+        "/reddit": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
+                }
+            }
+        },
         "/reddit/r/{subreddit}/comments/{id}": {
             "get": {
                 "tags": ["reddit"],
                 "summary": "Embed for a Reddit post",
-                "description": "Also served with the post slug after the id, as in reddit links.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
                     { "$ref": "#/components/parameters/RedditId" }
@@ -445,10 +505,44 @@
             "get": {
                 "tags": ["reddit"],
                 "summary": "Embed for a Reddit comment",
-                "description": "Also served as `/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}`.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
                     { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/reddit/r/{subreddit}/comments/{id}/{slug}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Embed for a Reddit post, with the slug of its title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Embed for a Reddit comment, with the slug of the post's title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" },
                     { "$ref": "#/components/parameters/RedditComment" }
                 ],
                 "responses": {
@@ -515,7 +609,6 @@
             "get": {
                 "tags": ["reddit"],
                 "summary": "Reddit post json",
-                "description": "Also served with the post slug after the id, as in reddit links.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
                     { "$ref": "#/components/parameters/RedditId" }
@@ -531,10 +624,42 @@
             "get": {
                 "tags": ["reddit"],
                 "summary": "Reddit comment json",
-                "description": "Also served as `/api/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}`.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
                     { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditComment" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/{slug}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit post json, with the slug of its title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit comment json, with the slug of the post's title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" },
                     { "$ref": "#/components/parameters/RedditComment" }
                 ],
                 "responses": {
@@ -563,10 +688,10 @@
             "get": {
                 "tags": ["reddit"],
                 "summary": "Reddit post component json",
-                "description": "Also served with the post slug after the id, as in reddit links.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
-                    { "$ref": "#/components/parameters/RedditId" }
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -579,11 +704,46 @@
             "get": {
                 "tags": ["reddit"],
                 "summary": "Reddit comment component json",
-                "description": "Also served as `/api/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}/component`.",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
                     { "$ref": "#/components/parameters/RedditId" },
-                    { "$ref": "#/components/parameters/RedditComment" }
+                    { "$ref": "#/components/parameters/RedditComment" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/{slug}/component": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit post component json, with the slug of its title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/reddit/r/{subreddit}/comments/{id}/{slug}/{comment}/component": {
+            "get": {
+                "tags": ["reddit"],
+                "summary": "Reddit comment component json, with the slug of the post's title",
+                "parameters": [
+                    { "$ref": "#/components/parameters/RedditSubreddit" },
+                    { "$ref": "#/components/parameters/RedditId" },
+                    { "$ref": "#/components/parameters/RedditSlug" },
+                    { "$ref": "#/components/parameters/RedditComment" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -598,12 +758,22 @@
                 "summary": "Reddit post or comment component json for a share link",
                 "parameters": [
                     { "$ref": "#/components/parameters/RedditSubreddit" },
-                    { "$ref": "#/components/parameters/RedditShareCode" }
+                    { "$ref": "#/components/parameters/RedditShareCode" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
                     "400": { "$ref": "#/components/responses/JsonError" },
                     "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Redirect to the abembed repository",
+                "responses": {
+                    "307": { "$ref": "#/components/responses/RepositoryRedirect" }
                 }
             }
         },
@@ -615,6 +785,32 @@
                 "parameters": [
                     { "$ref": "#/components/parameters/TwitterUsername" },
                     { "$ref": "#/components/parameters/TwitterId" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "404": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/twitter/{username}/status/{id}/photo/{index}": {
+            "get": {
+                "tags": ["twitter"],
+                "summary": "Embed for an X/Twitter status, from a link to one of its photos",
+                "description": "The whole status is embedded, whichever photo the link is for.",
+                "parameters": [
+                    { "$ref": "#/components/parameters/TwitterUsername" },
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    {
+                        "name": "index",
+                        "in": "path",
+                        "required": true,
+                        "description": "Position of the photo in the x.com link, ignored",
+                        "schema": { "type": "string" },
+                        "example": "1"
+                    }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/DiscordEmbed" },
@@ -735,7 +931,8 @@
                 "summary": "X/Twitter status component json",
                 "parameters": [
                     { "$ref": "#/components/parameters/TwitterUsername" },
-                    { "$ref": "#/components/parameters/TwitterId" }
+                    { "$ref": "#/components/parameters/TwitterId" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -752,7 +949,8 @@
                 "parameters": [
                     { "$ref": "#/components/parameters/TwitterUsername" },
                     { "$ref": "#/components/parameters/TwitterId" },
-                    { "$ref": "#/components/parameters/Language" }
+                    { "$ref": "#/components/parameters/Language" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
                     "200": { "$ref": "#/components/responses/Component" },
@@ -771,6 +969,17 @@
                 "required": true,
                 "description": "Zero based position in the post's media",
                 "schema": { "type": "integer", "minimum": 0 }
+            },
+            "MediaLimit": {
+                "name": "media_limit",
+                "in": "query",
+                "description": "Most media to include, across the post and the posts shown with it. Up to 10 the json fits a component embed. Above 10 it is for a bot's message instead: media fills more galleries of 10, and the text is cut to the 4000 characters a message allows rather than to the embed's 3000 bytes. Media that would take the message over 40 components is left out.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 380,
+                    "default": 10
+                }
             },
             "InstagramMediaType": {
                 "name": "media_type",
@@ -830,6 +1039,14 @@
                 "schema": { "type": "string", "pattern": "^[a-z0-9]{1,16}$" },
                 "example": "1xm08ih"
             },
+            "RedditSlug": {
+                "name": "slug",
+                "in": "path",
+                "required": true,
+                "description": "Post title as in reddit links, only used as the title when the post's own can't be read",
+                "schema": { "type": "string" },
+                "example": "some_post_title"
+            },
             "RedditComment": {
                 "name": "comment",
                 "in": "path",
@@ -887,6 +1104,14 @@
                                 }
                             }
                         }
+                    }
+                }
+            },
+            "RepositoryRedirect": {
+                "description": "Redirect to the abembed repository",
+                "headers": {
+                    "Location": {
+                        "schema": { "type": "string", "format": "uri" }
                     }
                 }
             },

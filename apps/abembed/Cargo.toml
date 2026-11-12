@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 worker = { version = "0.8", features = ['http', 'axum', 'd1'] }
 worker-macros = { version = "0.8", features = ['http'] }
-axum = { version = "0.8", default-features = false }
+axum = { version = "0.8", default-features = false, features = ["query"] }
 tower-service = "0.3.3"
 tower-http = { version = "0.6.2", features = ["normalize-path"] }
 regex = "1.13.1"
