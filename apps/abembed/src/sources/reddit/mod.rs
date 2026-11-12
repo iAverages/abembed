@@ -15,7 +15,7 @@ use axum::{
     routing::get,
     Router,
 };
-use page::{author, dash_id, dash_video, oembed};
+use page::{author, dash_id, dash_video, feed_body, oembed};
 use serde::Deserialize;
 use serde_json::json;
 use worker::{Env, Url};
@@ -284,6 +284,10 @@ impl RedditSource {
             embed.author = embed.author.or(author_name.map(author));
         }
 
+        if self.comment.is_none() && embed.description.is_none() {
+            embed.description = self.feed_body(providers).await;
+        }
+
         let heading = embed.title.as_ref().map(|title| format!("**{title}**"));
         embed.description = match (heading, embed.description.take()) {
             (Some(heading), Some(body)) => Some(format!("{heading}\n{body}")),
@@ -321,6 +325,17 @@ impl RedditSource {
         result.unwrap_or_else(|HttpError(_, message)| {
             self.warn_fallback("oembed", &message);
             (None, None)
+        })
+    }
+
+    async fn feed_body(&self, providers: &Providers) -> Option<String> {
+        let url = format!("{}.rss?limit=1", self.post().source_url());
+        let result = providers
+            .fetch(&url, &HTML_HEADERS, |feed| feed_body(feed, &self.id))
+            .await;
+        result.unwrap_or_else(|HttpError(_, message)| {
+            self.warn_fallback("feed", &message);
+            None
         })
     }
 
