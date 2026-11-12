@@ -213,6 +213,9 @@ pub fn cdn_url(url: &str, domains: &[&str]) -> Option<String> {
     (url.scheme() == "https" && allowed).then(|| url.to_string())
 }
 
+// animated gifs come as mp4, the gif service (apps/gif-service) serves them as webp or gif
+pub const GIF_SERVICE_URL: &str = "https://gif.abembed.com";
+
 // merges the separate dash video and audio streams, see apps/proxy
 const MERGE_PROXY_URL: &str = "https://proxy.abembed.com/merge";
 

@@ -3,7 +3,7 @@
 use super::RedditSource;
 use crate::sources::{
     bad_gateway, cdn_url, merged_video_url, sized, Author, EmbedPost, HttpError, Media, MediaKind,
-    Source, Stats,
+    Source, Stats, GIF_SERVICE_URL,
 };
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -103,19 +103,17 @@ fn post_media(root: &ElementRef, post: &Value) -> Vec<Media> {
 fn comment_media(body: &ElementRef) -> Vec<Media> {
     body.select(&selector("figure"))
         .filter_map(|figure| {
-            select(&figure, "shreddit-player")
-                .and_then(|player| player_media(&player))
+            let id = select(&figure, r#"[id$="-aspect-ratio"]"#)
+                .and_then(|container| container.attr("id")?.strip_suffix("-aspect-ratio"));
+
+            id.and_then(|id| giphy_media(id.strip_prefix("giphy|")?))
+                .or_else(|| player_media(&select(&figure, "shreddit-player")?))
                 .or_else(|| {
                     figure
                         .select(&selector("img"))
                         .find_map(|image| preview_image(image.attr("src")?))
                 })
-                // videos are not rendered in comment embeds, only their container is
-                .or_else(|| {
-                    let container = select(&figure, r#"[id$="-aspect-ratio"]"#)?;
-                    let id = container.attr("id")?.strip_suffix("-aspect-ratio")?;
-                    linked_media(&format!("{VIDEO_HOST}{id}"))
-                })
+                .or_else(|| linked_media(&format!("{VIDEO_HOST}{}", id?)))
         })
         .collect()
 }
@@ -123,7 +121,8 @@ fn comment_media(body: &ElementRef) -> Vec<Media> {
 fn player_media(player: &ElementRef) -> Option<Media> {
     // gifs play an mp4 preview of the gif
     if player.attr("gif").is_some() {
-        return preview_image(player.attr("src")?);
+        let src = player.attr("src")?;
+        return preview_image(src).or_else(|| external_gif(src));
     }
 
     let packaged: Value = serde_json::from_str(player.attr("packaged-media-json")?).ok()?;
@@ -152,6 +151,30 @@ fn preview_image(src: &str) -> Option<Media> {
     }
     let file = url.path_segments()?.next_back()?.rsplit('-').next()?;
     linked_media(&format!("https://i.redd.it/{file}"))
+}
+
+fn external_gif(src: &str) -> Option<Media> {
+    let url = Url::parse(&cdn_url(src, &["external-preview.redd.it"])?).ok()?;
+    let file = url.path().strip_suffix(".gif")?;
+
+    Some(Media {
+        kind: MediaKind::Image,
+        url: format!(
+            "{GIF_SERVICE_URL}/external-preview{file}.webp?{}",
+            url.query()?
+        ),
+        width: None,
+        height: None,
+    })
+}
+
+fn giphy_media(id: &str) -> Option<Media> {
+    sized(id, 5..=32, |byte| byte.is_ascii_alphanumeric()).then(|| Media {
+        kind: MediaKind::Image,
+        url: format!("https://i.giphy.com/{id}.gif"),
+        width: None,
+        height: None,
+    })
 }
 
 fn linked_media(url: &str) -> Option<Media> {
@@ -359,6 +382,17 @@ mod tests {
     }
 
     #[test]
+    fn serves_external_gifs_through_the_gif_service() {
+        let embed = source().embed_from_html(&external_gif_post_page()).unwrap();
+
+        assert_eq!(
+            urls(&embed),
+            ["https://gif.abembed.com/external-preview/XBb3yF47m8XLmL6NsoHVm0eBNu0uwoXOJ75hevQ7GN8.webp?width=556&format=mp4&s=70a4"]
+        );
+        assert_eq!(embed.media[0].kind, MediaKind::Image);
+    }
+
+    #[test]
     fn extracts_text_posts() {
         let embed = source().embed_from_html(&text_post_page()).unwrap();
 
@@ -426,6 +460,17 @@ mod tests {
 
         assert_eq!(urls(&embed), ["https://i.redd.it/nhvtlii5suxh1.gif"]);
         assert_eq!(embed.stats.unwrap().comments, Some(1));
+    }
+
+    #[test]
+    fn extracts_giphy_comment_gifs() {
+        let embed = comment_source()
+            .embed_from_html(&giphy_comment_page())
+            .unwrap();
+
+        assert_eq!(urls(&embed), ["https://i.giphy.com/Qx4n8lDS178TEkXlMj.gif"]);
+        assert_eq!(embed.media[0].kind, MediaKind::Image);
+        assert_eq!(embed.description, None);
     }
 
     #[test]

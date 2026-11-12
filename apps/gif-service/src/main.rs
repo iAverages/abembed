@@ -1,6 +1,6 @@
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -17,7 +17,8 @@ use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tower_http::trace::TraceLayer;
 
-const DEFAULT_UPSTREAM: &str = "https://video.twimg.com/";
+const TWITTER_UPSTREAM: &str = "https://video.twimg.com/";
+const REDDIT_PREVIEW_UPSTREAM: &str = "https://external-preview.redd.it/";
 const CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 const DEFAULT_MAX_INPUT_BYTES: usize = 50 * 1024 * 1024;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 128 * 1024 * 1024;
@@ -31,7 +32,8 @@ enum OutputFormat {
 #[derive(Clone)]
 struct AppState {
     client: Client,
-    upstream: Url,
+    twitter_upstream: Url,
+    reddit_preview_upstream: Url,
     conversions: Arc<Semaphore>,
     max_input_bytes: usize,
     max_output_bytes: usize,
@@ -84,18 +86,17 @@ impl IntoResponse for ServiceError {
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let upstream = parse_upstream(
-        &env::var("GIF_SERVICE_UPSTREAM_BASE_URL").unwrap_or_else(|_| DEFAULT_UPSTREAM.into()),
-    )
-    .expect("valid GIF_SERVICE_UPSTREAM_BASE_URL");
     let fetch_timeout = env_value("GIF_SERVICE_FETCH_TIMEOUT_SECONDS", 30);
     let state = AppState {
         client: Client::builder()
+            .user_agent(concat!("gif-service/", env!("CARGO_PKG_VERSION")))
             .redirect(Policy::none())
             .timeout(Duration::from_secs(fetch_timeout))
             .build()
             .expect("HTTP client"),
-        upstream,
+        twitter_upstream: Url::parse(TWITTER_UPSTREAM).expect("valid twitter upstream"),
+        reddit_preview_upstream: Url::parse(REDDIT_PREVIEW_UPSTREAM)
+            .expect("valid reddit preview upstream"),
         conversions: Arc::new(Semaphore::new(env_value("GIF_SERVICE_MAX_CONVERSIONS", 2))),
         max_input_bytes: env_value("GIF_SERVICE_MAX_INPUT_BYTES", DEFAULT_MAX_INPUT_BYTES),
         max_output_bytes: env_value("GIF_SERVICE_MAX_OUTPUT_BYTES", DEFAULT_MAX_OUTPUT_BYTES),
@@ -104,7 +105,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
-        .route("/tweet_video/{filename}", get(convert))
+        .route("/tweet_video/{filename}", get(convert_tweet_video))
+        .route("/external-preview/{filename}", get(convert_reddit_preview))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3002")
@@ -125,22 +127,43 @@ async fn health() -> Response {
     response
 }
 
-async fn convert(
+async fn convert_tweet_video(
     Path(filename): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Response, ServiceError> {
+    let source = source_url(
+        &state.twitter_upstream,
+        &["tweet_video", &upstream_filename(&filename, "mp4")],
+        None,
+    )?;
+    convert(&state, source, &filename).await
+}
+
+async fn convert_reddit_preview(
+    Path(filename): Path<String>,
+    RawQuery(query): RawQuery,
+    State(state): State<AppState>,
+) -> Result<Response, ServiceError> {
+    let source = source_url(
+        &state.reddit_preview_upstream,
+        &[&upstream_filename(&filename, "gif")],
+        query.as_deref(),
+    )?;
+    convert(&state, source, &filename).await
+}
+
+async fn convert(state: &AppState, source: Url, filename: &str) -> Result<Response, ServiceError> {
     let output_format = if filename.ends_with(".gif") {
         OutputFormat::Gif
     } else {
         OutputFormat::Webp
     };
-    let upstream_filename = upstream_filename(&filename);
     let _permit = state
         .conversions
         .clone()
         .try_acquire_owned()
         .map_err(|_| ServiceError::Busy)?;
-    let source = fetch_video(&state, &upstream_filename).await?;
+    let source = fetch_video(state, source).await?;
     let image = transcode(
         source,
         output_format,
@@ -151,46 +174,32 @@ async fn convert(
     Ok(image_response(image, output_format))
 }
 
-fn upstream_filename(filename: &str) -> String {
+fn upstream_filename(filename: &str, extension: &str) -> String {
     filename
         .strip_suffix(".webp")
         .or_else(|| filename.strip_suffix(".gif"))
-        .map_or_else(|| filename.to_owned(), |name| format!("{name}.mp4"))
+        .map_or_else(|| filename.to_owned(), |name| format!("{name}.{extension}"))
 }
 
-fn parse_upstream(value: &str) -> Result<Url, String> {
-    let url = Url::parse(value).map_err(|error| error.to_string())?;
-    if !matches!(url.scheme(), "http" | "https") || url.cannot_be_a_base() {
-        return Err("upstream must be an HTTP(S) base URL".into());
-    }
-    Ok(url)
-}
-
-fn source_url(upstream: &Url, filename: &str) -> Result<Url, ServiceError> {
+fn source_url(upstream: &Url, path: &[&str], query: Option<&str>) -> Result<Url, ServiceError> {
     let mut url = upstream.clone();
     url.path_segments_mut()
         .map_err(|_| ServiceError::Internal)?
         .pop_if_empty()
-        .push("tweet_video")
-        .push(filename);
-    url.set_query(None);
+        .extend(path);
+    url.set_query(query);
     url.set_fragment(None);
     Ok(url)
 }
 
-async fn fetch_video(state: &AppState, filename: &str) -> Result<Bytes, ServiceError> {
-    let response = state
-        .client
-        .get(source_url(&state.upstream, filename)?)
-        .send()
-        .await
-        .map_err(|error| {
-            if error.is_timeout() {
-                ServiceError::UpstreamTimeout
-            } else {
-                ServiceError::Upstream
-            }
-        })?;
+async fn fetch_video(state: &AppState, source: Url) -> Result<Bytes, ServiceError> {
+    let response = state.client.get(source).send().await.map_err(|error| {
+        if error.is_timeout() {
+            ServiceError::UpstreamTimeout
+        } else {
+            ServiceError::Upstream
+        }
+    })?;
     if response.status() == StatusCode::NOT_FOUND {
         return Err(ServiceError::UpstreamNotFound);
     }
@@ -427,16 +436,47 @@ mod tests {
     #[test]
     fn requests_mp4_for_image_url() {
         assert_eq!(
-            upstream_filename("HTNiiJrbAAA-Ya5.webp"),
+            upstream_filename("HTNiiJrbAAA-Ya5.webp", "mp4"),
             "HTNiiJrbAAA-Ya5.mp4"
         );
         assert_eq!(
-            upstream_filename("HTNiiJrbAAA-Ya5.gif"),
+            upstream_filename("HTNiiJrbAAA-Ya5.gif", "mp4"),
             "HTNiiJrbAAA-Ya5.mp4"
         );
         assert_eq!(
-            upstream_filename("HTNiiJrbAAA-Ya5.mp4"),
+            upstream_filename("HTNiiJrbAAA-Ya5.mp4", "mp4"),
             "HTNiiJrbAAA-Ya5.mp4"
+        );
+    }
+
+    #[test]
+    fn tweet_videos_drop_the_query() {
+        let upstream = Url::parse(TWITTER_UPSTREAM).unwrap();
+
+        assert_eq!(
+            source_url(&upstream, &["tweet_video", "HTNiiJrbAAA-Ya5.mp4"], None)
+                .unwrap()
+                .as_str(),
+            "https://video.twimg.com/tweet_video/HTNiiJrbAAA-Ya5.mp4"
+        );
+    }
+
+    #[test]
+    fn reddit_previews_keep_their_signed_query() {
+        let upstream = Url::parse(REDDIT_PREVIEW_UPSTREAM).unwrap();
+        let filename = upstream_filename("XBb3yF47m8XL.webp", "gif");
+
+        assert_eq!(
+            source_url(&upstream, &[&filename], Some("width=556&format=mp4&s=70a4"))
+                .unwrap()
+                .as_str(),
+            "https://external-preview.redd.it/XBb3yF47m8XL.gif?width=556&format=mp4&s=70a4"
+        );
+        assert_eq!(
+            source_url(&upstream, &["..", "a/b.gif"], None)
+                .unwrap()
+                .as_str(),
+            "https://external-preview.redd.it/a%2Fb.gif"
         );
     }
 

@@ -74,6 +74,20 @@ pub fn image_post_page() -> String {
     )
 }
 
+pub fn external_gif_post_page() -> String {
+    post_page(
+        "gif",
+        "http://www.chinawhisper.com/wp-content/uploads/2012/08/dynamic-chinese-dynasty-map.gif",
+        &[
+            POST_HEADER,
+            &title("Chinese Historical Boundaries [556x537][GIF]"),
+            r#"<shreddit-player src="https://external-preview.redd.it/XBb3yF47m8XLmL6NsoHVm0eBNu0uwoXOJ75hevQ7GN8.gif?width=556&amp;format=mp4&amp;s=70a4" autoplay autoplay-pref gif is-mobile post-id="t3_1xm08ih" poster="https://external-preview.redd.it/chinese-historical-boundaries-v0-XBb3yF47m8XLmL6NsoHVm0eBNu0uwoXOJ75hevQ7GN8.gif?format=png8&amp;s=0367"></shreddit-player>"#,
+            &footer(550, "View 83 comments"),
+        ]
+        .concat(),
+    )
+}
+
 pub fn gallery_post_page() -> String {
     let slide = |id: &str| {
         format!(
@@ -181,6 +195,20 @@ pub fn gif_comment_page() -> String {
                 r#" <figure> <shreddit-async-loader bundleName="shreddit_aspect_ratio"> <shreddit-aspect-ratio id="nhvtlii5suxh1-aspect-ratio" is-embed style=" --aspect-ratio: 1;"> <shreddit-player src="https://preview.redd.it/nhvtlii5suxh1.gif?width=640&amp;format=mp4&amp;s=e38d" autoplay gif is-mobile> <source src="https://preview.redd.it/nhvtlii5suxh1.gif?width=640&amp;format=mp4&amp;s=e38d"> </shreddit-player> <template slot="error"> <div> <img alt="Media error" loading="eager" objectfit="contain" src=""> </div> </template> </shreddit-aspect-ratio> </shreddit-async-loader> </figure> "#,
             ),
             &footer(1372, "View 1 comment"),
+        ]
+        .concat(),
+    )
+}
+
+pub fn giphy_comment_page() -> String {
+    comment_page(
+        Some("giphy"),
+        &[
+            COMMENT_HEADER,
+            &comment_body(
+                r#" <p> <figure class="rte-media"> <shreddit-async-loader class="contents" bundleName="shreddit_aspect_ratio"> <shreddit-aspect-ratio id="giphy|Qx4n8lDS178TEkXlMj-aspect-ratio" is-embed style=" --aspect-ratio: 1.18;"> <shreddit-player src="https://external-preview.redd.it/TShOKBG8sPs06mbzGwsz.gif?width=236&amp;format=mp4&amp;s=1da6" autoplay gif is-mobile> <source src="https://external-preview.redd.it/TShOKBG8sPs06mbzGwsz.gif?width=236&amp;format=mp4&amp;s=1da6"> </shreddit-player> <template slot="error"> <div> <img alt="Media error" loading="eager" objectfit="contain" src=""> </div> </template> </shreddit-aspect-ratio> </shreddit-async-loader> </figure> </p> "#,
+            ),
+            &footer(30, "View 7 comments"),
         ]
         .concat(),
     )

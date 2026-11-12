@@ -1,12 +1,11 @@
 use super::{status_url, TwitterSource};
-use crate::sources::{bad_gateway, Author, EmbedPost, HttpError, Media, MediaKind, Stats};
+use crate::sources::{
+    bad_gateway, Author, EmbedPost, HttpError, Media, MediaKind, Stats, GIF_SERVICE_URL,
+};
 use percent_encoding::percent_decode_str;
 use scraper::{Html, Selector};
 use serde_json::Value;
 use worker::Url;
-
-// animated gifs come as mp4, the gif service (apps/gif-service) serves them as webp or gif
-const GIF_SERVICE_URL: &str = "https://gif.abembed.com";
 
 impl TwitterSource {
     pub(super) fn tweet_json(&self, body: &str) -> Result<Value, HttpError> {
