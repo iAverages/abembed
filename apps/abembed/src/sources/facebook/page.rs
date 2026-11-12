@@ -204,6 +204,7 @@ fn video(html: &str, video_id: &str) -> Result<Media, HttpError> {
             url: merged_video_url(&video.url, &audio.url),
             width: Some(video.width).filter(|width| *width > 0),
             height: Some(video.height).filter(|height| *height > 0),
+            alt: None,
         });
     }
 
@@ -232,6 +233,7 @@ fn video(html: &str, video_id: &str) -> Result<Media, HttpError> {
         url: cdn_url(url).ok_or_else(not_cdn)?,
         width: dimension("width"),
         height: dimension("height"),
+        alt: None,
     })
 }
 
@@ -495,6 +497,7 @@ fn image(url: String) -> Media {
         url,
         width: None,
         height: None,
+        alt: None,
     }
 }
 

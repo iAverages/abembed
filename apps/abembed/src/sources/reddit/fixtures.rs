@@ -146,6 +146,34 @@ pub fn text_post_page() -> String {
     )
 }
 
+pub fn inline_media_post_page() -> String {
+    let figure = |id: &str, caption: &str| {
+        format!(
+            r#"<figure class="rte-media"> <a href="https://preview.redd.it/one-year-on-nixos-v0-{id}.png?width=1920&amp;format=png&amp;auto=webp&amp;s=d196" rel="noopener ugc" target="_blank"> <img src="https://preview.redd.it/one-year-on-nixos-v0-{id}.png?width=1920&amp;format=png&amp;auto=webp&amp;s=d196" alt="r/NixOS" width="750" height="auto" loading="eager"> </a> {caption} </figure>"#
+        )
+    };
+
+    post_page(
+        "multi_media",
+        "https://www.reddit.com/r/NixOS/comments/1xm08ih/one_year_on_nixos/",
+        &[
+            POST_HEADER,
+            r#"<shreddit-embed-title>One Year on NixOS</shreddit-embed-title> <div class="leading-[20px] relative"> <div id="t3_1xm08ih-post-rtjson-content" class="md mx-0 mb-xs text-neutral-content overflow-hidden h-[60px]" dir="auto"> "#,
+            &figure(
+                "uq3ys09fau0i1",
+                r#"<figcaption class="rte-media-caption">Just me doing some ImHex learning</figcaption>"#,
+            ),
+            "<p> Well, a little more than one year, actually. </p> ",
+            &figure("fl6b1ljpau0i1", ""),
+            r#"<p> I&#39;d like to hear your questions. </p><h1 class="text-24-scalable"># Do you use flakes?</h1><p> <strong>Yes.</strong> </p> "#,
+            &figure("zx0o44opyzyh1", ""),
+            "</div> </div>",
+            &footer(23, "View 12 comments"),
+        ]
+        .concat(),
+    )
+}
+
 pub fn unsupported_post_page() -> String {
     post_page(
         "link",

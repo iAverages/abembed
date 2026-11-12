@@ -385,7 +385,7 @@ pub fn post_json(
         "platform": embed.provider,
         "id": embed.provider_id,
         "url": embed.source_url,
-        "description": embed.description,
+        "description": embed.description.as_deref().map(html::plain_description),
         "author": embed.author.as_ref().map(|author| json!({
             "name": author_name(author),
             "username": author.username,
@@ -741,6 +741,7 @@ pub struct Media {
     pub url: String,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub alt: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -802,6 +803,7 @@ mod tests {
                     url: url.to_string(),
                     width: None,
                     height: None,
+                    alt: None,
                 })
                 .collect(),
             stats: None,

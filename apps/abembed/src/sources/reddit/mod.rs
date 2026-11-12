@@ -5,7 +5,7 @@ mod page;
 use super::{
     bad_request, get_cached,
     html::{icon, Site},
-    post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost, HttpError,
+    post_cache, put_cached, redirect, redirects_browser, sized, warn, EmbedPost, HttpError, Media,
     Providers, Source,
 };
 use axum::{
@@ -271,9 +271,13 @@ impl RedditSource {
         for media in &mut embed.media {
             if let Some(id) = dash_id(&media.url).map(str::to_string) {
                 let playlist = format!("https://v.redd.it/{id}/DASHPlaylist.mpd");
-                *media = providers
+                let video = providers
                     .fetch(&playlist, &HTML_HEADERS, |xml| dash_video(xml, &id))
                     .await?;
+                *media = Media {
+                    alt: media.alt.take(),
+                    ..video
+                };
             }
         }
 

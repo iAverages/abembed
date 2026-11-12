@@ -2,8 +2,8 @@
 
 use super::RedditSource;
 use crate::sources::{
-    bad_gateway, cdn_url, merged_video_url, sized, Author, EmbedPost, HttpError, Media, MediaKind,
-    Source, Stats, GIF_SERVICE_URL,
+    bad_gateway, cdn_url, html::INLINE_MEDIA, merged_video_url, sized, Author, EmbedPost,
+    HttpError, Media, MediaKind, Source, Stats, GIF_SERVICE_URL,
 };
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -28,19 +28,20 @@ impl RedditSource {
         }
 
         let root = page.root_element();
-        let body = select(&root, &format!("#{id}-post-rtjson-content"));
-        let (title, media) = match (&self.comment, body) {
+        let (description, mut media) = select(&root, &format!("#{id}-post-rtjson-content"))
+            .map(|body| body_content(&body))
+            .unwrap_or_default();
+        let title = match &self.comment {
             // comment embeds do not include the post title
-            (Some(_), body) => (
-                None,
-                body.map(|body| comment_media(&body)).unwrap_or_default(),
-            ),
-            (None, _) => (
+            Some(_) => None,
+            None => {
+                if media.is_empty() {
+                    media = post_media(&root, &data["post"]);
+                }
                 select(&root, "h1, shreddit-embed-title")
                     .map(|title| text(&title))
-                    .filter(|title| !title.is_empty()),
-                post_media(&root, &data["post"]),
-            ),
+                    .filter(|title| !title.is_empty())
+            }
         };
 
         Ok(EmbedPost {
@@ -48,9 +49,7 @@ impl RedditSource {
             provider_id: self.id().to_string(),
             source_url: self.source_url(),
             title,
-            description: body
-                .map(|body| body_text(&body))
-                .filter(|body| !body.is_empty()),
+            description,
             // comment embeds link the author's avatar first
             author: root
                 .select(&selector(r#"a[href*="/user/"]"#))
@@ -100,22 +99,52 @@ fn post_media(root: &ElementRef, post: &Value) -> Vec<Media> {
         .collect()
 }
 
-fn comment_media(body: &ElementRef) -> Vec<Media> {
-    body.select(&selector("figure"))
-        .filter_map(|figure| {
-            let id = select(&figure, r#"[id$="-aspect-ratio"]"#)
-                .and_then(|container| container.attr("id")?.strip_suffix("-aspect-ratio"));
+fn body_content(body: &ElementRef) -> (Option<String>, Vec<Media>) {
+    let mut media = Vec::new();
+    let mut blocks = Vec::new();
 
-            id.and_then(|id| giphy_media(id.strip_prefix("giphy|")?))
-                .or_else(|| player_media(&select(&figure, "shreddit-player")?))
-                .or_else(|| {
-                    figure
-                        .select(&selector("img"))
-                        .find_map(|image| preview_image(image.attr("src")?))
-                })
-                .or_else(|| linked_media(&format!("{VIDEO_HOST}{}", id?)))
+    for block in body.child_elements() {
+        if block.value().name() != "figure" {
+            blocks.push(text(&block));
+            continue;
+        }
+
+        let caption = select(&block, "figcaption")
+            .map(|caption| text(&caption))
+            .filter(|caption| !caption.is_empty());
+
+        if let Some(figure) = figure_media(&block) {
+            media.push(Media {
+                alt: caption.clone(),
+                ..figure
+            });
+            blocks.push(INLINE_MEDIA.to_string());
+        }
+
+        blocks.extend(caption.map(|caption| format!("-# {caption}")));
+    }
+
+    blocks.retain(|block| !block.is_empty());
+
+    while blocks.last().is_some_and(|block| block == INLINE_MEDIA) {
+        blocks.pop();
+    }
+
+    ((!blocks.is_empty()).then(|| blocks.join("\n\n")), media)
+}
+
+fn figure_media(figure: &ElementRef) -> Option<Media> {
+    let id = select(figure, r#"[id$="-aspect-ratio"]"#)
+        .and_then(|container| container.attr("id")?.strip_suffix("-aspect-ratio"));
+
+    id.and_then(|id| giphy_media(id.strip_prefix("giphy|")?))
+        .or_else(|| player_media(&select(figure, "shreddit-player")?))
+        .or_else(|| {
+            figure
+                .select(&selector("img"))
+                .find_map(|image| preview_image(image.attr("src")?))
         })
-        .collect()
+        .or_else(|| linked_media(&format!("{VIDEO_HOST}{}", id?)))
 }
 
 fn player_media(player: &ElementRef) -> Option<Media> {
@@ -139,6 +168,7 @@ fn player_media(player: &ElementRef) -> Option<Media> {
         url: cdn_url(source["url"].as_str()?, &["packaged-media.redd.it"])?,
         width: dimension(source, "width"),
         height: dimension(source, "height"),
+        alt: None,
     })
 }
 
@@ -165,6 +195,7 @@ fn external_gif(src: &str) -> Option<Media> {
         ),
         width: None,
         height: None,
+        alt: None,
     })
 }
 
@@ -174,6 +205,7 @@ fn giphy_media(id: &str) -> Option<Media> {
         url: format!("https://i.giphy.com/{id}.gif"),
         width: None,
         height: None,
+        alt: None,
     })
 }
 
@@ -195,6 +227,7 @@ fn linked_media(url: &str) -> Option<Media> {
         url,
         width: None,
         height: None,
+        alt: None,
     })
 }
 
@@ -252,6 +285,7 @@ pub(super) fn dash_video(playlist: &str, id: &str) -> Result<Media, HttpError> {
         },
         width,
         height,
+        alt: None,
     })
 }
 
@@ -284,9 +318,7 @@ pub(super) fn feed_body(feed: &str, id: &str) -> Result<Option<String>, HttpErro
 
     Ok(content.and_then(|content| {
         let content = Html::parse_fragment(&content);
-        select(&content.root_element(), "div.md")
-            .map(|body| body_text(&body))
-            .filter(|body| !body.is_empty())
+        select(&content.root_element(), "div.md").and_then(|body| body_content(&body).0)
     }))
 }
 
@@ -297,15 +329,6 @@ fn comment_count(html: &str) -> Option<u64> {
         // shown instead of the count when there are no comments
         None => html.contains("View more on Reddit").then_some(0),
     }
-}
-
-fn body_text(body: &ElementRef) -> String {
-    body.child_elements()
-        .filter(|block| block.value().name() != "figure")
-        .map(|block| text(&block))
-        .filter(|block| !block.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 fn text(element: &ElementRef) -> String {
@@ -404,6 +427,33 @@ mod tests {
         assert_eq!(
             embed.description.as_deref(),
             Some("So people often joke about it but eventually it would cost too much blood right?\n\nIs there some sort of hard limit?")
+        );
+    }
+
+    #[test]
+    fn places_body_images_in_the_post_text() {
+        let embed = source().embed_from_html(&inline_media_post_page()).unwrap();
+
+        assert_eq!(
+            urls(&embed),
+            [
+                "https://i.redd.it/uq3ys09fau0i1.png",
+                "https://i.redd.it/fl6b1ljpau0i1.png",
+                "https://i.redd.it/zx0o44opyzyh1.png"
+            ]
+        );
+        assert_eq!(embed.title.as_deref(), Some("One Year on NixOS"));
+        assert_eq!(
+            embed.media[0].alt.as_deref(),
+            Some("Just me doing some ImHex learning")
+        );
+        assert_eq!(embed.media[1].alt, None);
+        // the image after the last of the text is left to follow it
+        assert_eq!(
+            embed.description.unwrap(),
+            format!(
+                "{INLINE_MEDIA}\n\n-# Just me doing some ImHex learning\n\nWell, a little more than one year, actually.\n\n{INLINE_MEDIA}\n\nI'd like to hear your questions.\n\n# Do you use flakes?\n\nYes."
+            )
         );
     }
 

@@ -170,6 +170,7 @@ fn media_from_details(media: &Value) -> Option<Media> {
             url,
             width,
             height,
+            alt: None,
         });
     }
 
@@ -180,12 +181,14 @@ fn media_from_details(media: &Value) -> Option<Media> {
             url,
             width,
             height,
+            alt: None,
         }),
         "animated_gif" => Some(Media {
             kind: MediaKind::Image,
             url: gif_url(&url)?,
             width,
             height,
+            alt: None,
         }),
         _ => None,
     }
@@ -240,6 +243,7 @@ pub(super) fn card_media(card: &Value, vmap: &str) -> Option<Media> {
         url,
         width: dimension(&image["width"]),
         height: dimension(&image["height"]),
+        alt: None,
     })
 }
 

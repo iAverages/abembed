@@ -278,6 +278,7 @@ fn new_media(
         url: url.to_string(),
         width: dimension("width", "original_width"),
         height: dimension("height", "original_height"),
+        alt: None,
     }
 }
 

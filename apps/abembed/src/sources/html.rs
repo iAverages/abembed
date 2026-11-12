@@ -10,12 +10,16 @@ use worker::Url;
 
 // discord allows for 10 media gallery items
 const MEDIA_GALLERY_ITEM_LIMIT: usize = 10;
+// discord allows for 1024 characters of alt text on a media gallery item
+const MEDIA_ALT_LIMIT: usize = 1024;
 // discord allows for 4 images in open graph, although component embeds are used over this now
 const OPEN_GRAPH_IMAGE_LIMIT: usize = 4;
 // discord drops the component embed when its json is over 3000 bytes
 const COMPONENT_EMBED_BYTE_LIMIT: usize = 3000;
 // description in the open graph tags
 const OPEN_GRAPH_DESCRIPTION_LIMIT: usize = 3500;
+// marks where the next media item sits in a description
+pub const INLINE_MEDIA: &str = "\u{fffc}";
 
 // custom discord emojis
 pub mod icon {
@@ -176,17 +180,21 @@ fn post_components(
         components.push(divider());
     }
 
-    let text = post
-        .description
-        .as_deref()
-        .filter(|description| !description.is_empty())
-        .map(|description| quoted(link_tags(site, &truncate(description, description_limit))));
+    let description = truncate(
+        post.description.as_deref().unwrap_or_default(),
+        description_limit,
+    );
+    // the text before the first inline media, then the text after each one
+    let mut texts = description.split(INLINE_MEDIA).map(|text| {
+        let text = text.trim();
+        (!text.is_empty()).then(|| quoted(link_tags(site, text)))
+    });
 
     let lines: Vec<String> = label
         .map(|label| format!("**{label}**"))
         .into_iter()
         .chain(post.author.as_ref().map(author_line))
-        .chain(text)
+        .chain(texts.next().flatten())
         .collect();
 
     let header = (!lines.is_empty()).then(|| json!({ "type": 10, "content": lines.join("\n") }));
@@ -202,10 +210,33 @@ fn post_components(
     };
     components.extend(header);
 
-    if !post.media.is_empty() {
-        let gallery: Vec<Value> = (0..post.media.len().min(MEDIA_GALLERY_ITEM_LIMIT))
-            .map(|index| json!({ "media": { "url": media_url(index) } }))
-            .collect();
+    let mut media = post
+        .media
+        .iter()
+        .take(MEDIA_GALLERY_ITEM_LIMIT)
+        .enumerate()
+        .map(|(index, media)| {
+            let mut item = json!({ "media": { "url": media_url(index) } });
+            //
+            // alt text gives way to the description when both do not fit the embed
+            let alt = media.alt.as_deref();
+            if let Some(alt) = alt.filter(|alt| alt.chars().count() <= description_limit) {
+                item["description"] = json!(truncate(alt, MEDIA_ALT_LIMIT));
+            }
+            item
+        });
+
+    for text in texts {
+        components.extend(
+            media
+                .next()
+                .map(|item| json!({ "type": 12, "items": [item] })),
+        );
+        components.extend(text.map(|text| json!({ "type": 10, "content": text })));
+    }
+
+    let gallery: Vec<Value> = media.collect();
+    if !gallery.is_empty() {
         components.push(json!({ "type": 12, "items": gallery }));
     }
 
@@ -271,7 +302,10 @@ fn post_meta_tags(
         .as_deref()
         .filter(|description| !description.is_empty())
     {
-        let description = truncate(description, OPEN_GRAPH_DESCRIPTION_LIMIT);
+        let description = truncate(
+            &plain_description(description),
+            OPEN_GRAPH_DESCRIPTION_LIMIT,
+        );
         tags.push(meta_property("og:description", &description));
         tags.push(meta_property("twitter:description", &description));
     }
@@ -333,6 +367,15 @@ pub fn escape_html(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+pub fn plain_description(description: &str) -> String {
+    description
+        .split(INLINE_MEDIA)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 pub fn truncate(value: &str, limit: usize) -> String {
     if value.chars().count() <= limit {
         return value.to_string();
@@ -349,6 +392,7 @@ pub fn truncate(value: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::Media;
 
     const SITE: Site = Site {
         name: "Example",
@@ -482,6 +526,133 @@ mod tests {
 
         assert!(body.contains("hi [#tag](https://example.com/tag/tag)"));
         assert!(body.contains("> to [@someone](https://example.com/@someone)"));
+    }
+
+    fn components(description: &str, media: usize) -> Vec<(u64, String)> {
+        let mut embed = post(description, None);
+        embed.media = (0..media)
+            .map(|_| Media {
+                kind: MediaKind::Image,
+                url: String::new(),
+                width: None,
+                height: None,
+                alt: None,
+            })
+            .collect();
+
+        let body = discord_image_post_html(
+            &SITE,
+            &embed,
+            |index| format!("m{index}"),
+            |_| String::new(),
+        );
+        let (_, rest) = body.split_once(r#"type="application/json">"#).unwrap();
+        let json: Value = serde_json::from_str(rest.split_once("</script>").unwrap().0).unwrap();
+
+        json["component"]["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|component| {
+                let urls = component["items"].as_array().map(|items| {
+                    let urls = items
+                        .iter()
+                        .map(|item| item["media"]["url"].as_str().unwrap());
+                    urls.collect::<Vec<_>>().join(" ")
+                });
+                let content = component["content"].as_str().map(str::to_string);
+                (
+                    component["type"].as_u64().unwrap(),
+                    urls.or(content).unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    const FOOTER: &str = "[View on Example](https://example.com/post/1)";
+
+    #[test]
+    fn inline_media_sits_between_the_text_around_it() {
+        let description = format!("{INLINE_MEDIA}\n\nfirst\n\n{INLINE_MEDIA}\n\nsecond");
+
+        assert_eq!(
+            components(&description, 4),
+            [
+                (12, "m0".to_string()),
+                (10, "first".to_string()),
+                (12, "m1".to_string()),
+                (10, "second".to_string()),
+                (12, "m2 m3".to_string()),
+                (10, FOOTER.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn media_without_a_place_in_the_text_follows_it() {
+        assert_eq!(
+            components("text", 2),
+            [
+                (10, "text".to_string()),
+                (12, "m0 m1".to_string()),
+                (10, FOOTER.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_media_the_text_was_cut_before_follows_it() {
+        let description = format!("{}{INLINE_MEDIA}after", "a".repeat(4000));
+        let components = components(&description, 1);
+
+        assert_eq!(components.len(), 3);
+        assert!(components[0].1.ends_with("a..."));
+        assert_eq!(components[1], (12, "m0".to_string()));
+    }
+
+    #[test]
+    fn gallery_items_carry_their_alt_text() {
+        let mut embed = post("text", None);
+        embed.media = [Some("a <cat>"), None]
+            .map(|alt| Media {
+                kind: MediaKind::Image,
+                url: String::new(),
+                width: None,
+                height: None,
+                alt: alt.map(str::to_string),
+            })
+            .to_vec();
+        let json: Value = serde_json::from_str(&component_json(&embed)).unwrap();
+        let items = &json["component"]["components"][1]["items"];
+
+        assert_eq!(items[0]["description"], "a <cat>");
+        assert!(items[1].get("description").is_none());
+    }
+
+    #[test]
+    fn alt_text_is_left_out_before_the_embed_is_too_large() {
+        let mut embed = post("text", None);
+        embed.media = (0..MEDIA_GALLERY_ITEM_LIMIT)
+            .map(|_| Media {
+                kind: MediaKind::Image,
+                url: String::new(),
+                width: None,
+                height: None,
+                alt: Some("a".repeat(MEDIA_ALT_LIMIT)),
+            })
+            .collect();
+        let json = component_json(&embed);
+
+        assert!(json.len() <= COMPONENT_EMBED_BYTE_LIMIT, "{}", json.len());
+        assert!(!json.contains("description"), "{json}");
+    }
+
+    #[test]
+    fn plain_descriptions_leave_inline_media_out() {
+        let description = format!("{INLINE_MEDIA}\n\nfirst\n\n{INLINE_MEDIA}\n\nsecond");
+
+        assert_eq!(plain_description(&description), "first\n\nsecond");
+        assert_eq!(plain_description("text"), "text");
     }
 
     #[test]

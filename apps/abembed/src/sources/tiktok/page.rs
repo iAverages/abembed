@@ -223,6 +223,7 @@ fn new_media(kind: MediaKind, url: String, meta: &Value) -> Media {
         url,
         width: dimension("width"),
         height: dimension("height"),
+        alt: None,
     }
 }
 
