@@ -973,11 +973,11 @@
             "MediaLimit": {
                 "name": "media_limit",
                 "in": "query",
-                "description": "Most media to include, across the post and the posts shown with it. Up to 10 the json fits a component embed. Above 10 it is for a bot's message instead: media fills more galleries of 10, and the text is cut to the 4000 characters a message allows rather than to the embed's 3000 bytes. Media that would take the message over 40 components is left out.",
+                "description": "Most media to include, across the post and the posts shown with it. Up to 10 the json fits a component embed. Above 10 it is for a bot's message instead: media fills galleries of 9, the last taking a tenth item rather than leaving it alone, and the text is cut to the 4000 characters a message allows rather than to the embed's 3000 bytes. Media that would take the message over 40 components is left out.",
                 "schema": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 380,
+                    "maximum": 343,
                     "default": 10
                 }
             },

@@ -10,12 +10,15 @@ use worker::Url;
 
 // discord allows for 10 media gallery items, in a gallery and across a component embed
 pub const MEDIA_GALLERY_ITEM_LIMIT: usize = 10;
+// galleries of 9 look better on discord than ones of 10
+const MEDIA_GALLERY_ITEMS: usize = 9;
 // discord allows for 40 components in a message, counting the nested ones
 const MESSAGE_COMPONENT_LIMIT: usize = 40;
 // discord allows for 4000 characters across the text of a bot's message
 const MESSAGE_TEXT_LIMIT: usize = 4000;
-// a discord bots message with a full gallery for every component but the container and the footer
-pub const MESSAGE_MEDIA_LIMIT: usize = (MESSAGE_COMPONENT_LIMIT - 2) * MEDIA_GALLERY_ITEM_LIMIT;
+// a discord bots message with a gallery for every component but the container and the footer,
+// the last gallery being a full one
+pub const MESSAGE_MEDIA_LIMIT: usize = (MESSAGE_COMPONENT_LIMIT - 2) * MEDIA_GALLERY_ITEMS + 1;
 // discord allows for 1024 characters of alt text on a media gallery item
 const MEDIA_ALT_LIMIT: usize = 1024;
 // discord allows for 4 images in open graph, although component embeds are used over this now
@@ -288,9 +291,18 @@ fn post_components(
     }
 
     let gallery: Vec<Value> = media.collect();
+
+    // an item that would be alone in the last gallery fills the one before it instead
+    let filled = match gallery.len() > 1 && gallery.len() % MEDIA_GALLERY_ITEMS == 1 {
+        true => MEDIA_GALLERY_ITEM_LIMIT,
+        false => 0,
+    };
+
+    let (galleries, filled) = gallery.split_at(gallery.len() - filled);
     components.extend(
-        gallery
-            .chunks(MEDIA_GALLERY_ITEM_LIMIT)
+        galleries
+            .chunks(MEDIA_GALLERY_ITEMS)
+            .chain(filled.chunks(MEDIA_GALLERY_ITEM_LIMIT))
             .map(|items| json!({ "type": 12, "items": items })),
     );
 
@@ -692,12 +704,35 @@ mod tests {
             limited_components(&embed, 25),
             [
                 (10, "text".to_string()),
-                (12, urls(0..10)),
-                (12, urls(10..20)),
-                (12, urls(20..25)),
+                (12, urls(0..9)),
+                (12, urls(9..18)),
+                (12, urls(18..25)),
                 (10, FOOTER.to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn galleries_hold_nine_items_unless_the_tenth_would_be_alone() {
+        for (media, galleries) in [
+            (1, vec![1]),
+            (9, vec![9]),
+            (10, vec![10]),
+            (11, vec![9, 2]),
+            (18, vec![9, 9]),
+            (19, vec![9, 10]),
+            (20, vec![9, 9, 2]),
+        ] {
+            let mut embed = post("text", None);
+            embed.media = images(media);
+            let sizes: Vec<_> = limited_components(&embed, media)
+                .iter()
+                .filter(|(kind, _)| *kind == 12)
+                .map(|(_, urls)| urls.split(' ').count())
+                .collect();
+
+            assert_eq!(sizes, galleries, "{media}");
+        }
     }
 
     #[test]
