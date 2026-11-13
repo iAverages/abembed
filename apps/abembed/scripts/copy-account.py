@@ -57,7 +57,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--from", dest="source", choices=WRANGLER_ARGS)
     parser.add_argument("--to", dest="target", choices=add_account.ENVS)
-    parser.add_argument("--platform", choices=["facebook", "instagram"])
+    parser.add_argument("--platform", choices=["facebook", "instagram", "twitter"])
     opts = parser.parse_args()
 
     source = opts.source or add_account.ask("Copy from", list(WRANGLER_ARGS), "staging")
