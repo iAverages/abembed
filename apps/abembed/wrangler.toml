@@ -113,6 +113,7 @@ routes = [
 
   { pattern = "abtwitter.com", custom_domain = true },
   { pattern = "www.abtwitter.com", custom_domain = true },
+  { pattern = "abfixx.com", custom_domain = true },
 
   { pattern = "abembed.com", custom_domain = true },
   { pattern = "www.abembed.com", custom_domain = true },
