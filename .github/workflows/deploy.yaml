@@ -22,6 +22,9 @@ jobs:
       abembed: ${{ steps.filter.outputs.abembed }}
       provider: ${{ steps.filter.outputs.provider }}
       proxy: ${{ steps.filter.outputs.proxy }}
+      api: ${{ steps.filter.outputs.api }}
+      embed-image-service: ${{ steps.filter.outputs.embed-image-service }}
+      gif-service: ${{ steps.filter.outputs.gif-service }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -31,15 +34,37 @@ jobs:
             workspace: &workspace
               - Cargo.toml
               - Cargo.lock
+            nix: &nix
+              - flake.nix
+              - flake.lock
             abembed:
               - *workspace
+              - *nix
               - apps/abembed/**
             provider:
               - *workspace
+              - *nix
               - apps/provider/**
             proxy:
               - *workspace
+              - *nix
               - apps/proxy/**
+            api:
+              - *workspace
+              - *nix
+              - apps/api/**
+            embed-image-service:
+              - *nix
+              - package.json
+              - pnpm-lock.yaml
+              - pnpm-workspace.yaml
+              - apps/embed-image-service/**
+              - packages/embed-image/**
+              - packages/config/**
+            gif-service:
+              - *workspace
+              - *nix
+              - apps/gif-service/**
 
   provider:
     needs: [checks, changes]
@@ -72,31 +97,38 @@ jobs:
       environment: production
     secrets: inherit
 
-  # todo: only build and publish if had changes
-  containers:
-    needs: checks
-    if: github.ref_name == 'main'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - app: api
-            deployment_name: spqtify.com/api
-            nix_image_attr: apiDockerImage
-            version_key: apiVersion
-          - app: embed-image-service
-            deployment_name: spqtify.com/embed-image-service
-            nix_image_attr: embedImageServiceDockerImage
-            version_key: embedImageServiceVersion
-          - app: gif-service
-            deployment_name: abembed/gif-service
-            nix_image_attr: gifServiceDockerImage
-            version_key: gifServiceVersion
+  api:
+    needs: [checks, changes]
+    if: github.ref_name == 'main' && needs.changes.outputs.api == 'true'
     uses: ./.github/workflows/base-publish.yaml
     with:
       environment: production
-      nix_image_attr: ${{ matrix.nix_image_attr }}
-      deployment_name: ${{ matrix.deployment_name }}
+      nix_image_attr: apiDockerImage
+      deployment_name: spqtify.com/api
       argo_deployments_path: "helm/spqtify.com/values/production.yaml"
-      version_key: ${{ matrix.version_key }}
+      version_key: apiVersion
+    secrets: inherit
+
+  embed-image-service:
+    needs: [checks, changes]
+    if: github.ref_name == 'main' && needs.changes.outputs.embed-image-service == 'true'
+    uses: ./.github/workflows/base-publish.yaml
+    with:
+      environment: production
+      nix_image_attr: embedImageServiceDockerImage
+      deployment_name: spqtify.com/embed-image-service
+      argo_deployments_path: "helm/spqtify.com/values/production.yaml"
+      version_key: embedImageServiceVersion
+    secrets: inherit
+
+  gif-service:
+    needs: [checks, changes]
+    if: github.ref_name == 'main' && needs.changes.outputs.gif-service == 'true'
+    uses: ./.github/workflows/base-publish.yaml
+    with:
+      environment: production
+      nix_image_attr: gifServiceDockerImage
+      deployment_name: abembed/gif-service
+      argo_deployments_path: "helm/spqtify.com/values/production.yaml"
+      version_key: gifServiceVersion
     secrets: inherit
