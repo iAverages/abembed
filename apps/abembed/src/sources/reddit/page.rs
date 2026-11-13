@@ -105,7 +105,7 @@ fn body_content(body: &ElementRef) -> (Option<String>, Vec<Media>) {
 
     for block in body.child_elements() {
         if block.value().name() != "figure" {
-            blocks.push(text(&block));
+            blocks.push(block_text(&block));
             continue;
         }
 
@@ -131,6 +131,21 @@ fn body_content(body: &ElementRef) -> (Option<String>, Vec<Media>) {
     }
 
     ((!blocks.is_empty()).then(|| blocks.join("\n\n")), media)
+}
+
+fn block_text(block: &ElementRef) -> String {
+    let marker: fn(usize) -> String = match block.value().name() {
+        "ol" => |index| format!("{}. ", index + 1),
+        "ul" => |_| "- ".to_string(),
+        _ => return text(block),
+    };
+    block
+        .child_elements()
+        .filter(|item| item.value().name() == "li")
+        .enumerate()
+        .map(|(index, item)| format!("{}{}", marker(index), text(&item)))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn figure_media(figure: &ElementRef) -> Option<Media> {
@@ -454,6 +469,19 @@ mod tests {
             format!(
                 "{INLINE_MEDIA}\n\n-# Just me doing some ImHex learning\n\nWell, a little more than one year, actually.\n\n{INLINE_MEDIA}\n\nI'd like to hear your questions.\n\n# Do you use flakes?\n\nYes."
             )
+        );
+    }
+
+    #[test]
+    fn list_items_keep_their_own_lines() {
+        let html = Html::parse_fragment(
+            "<div><p>\n some examples:\n </p><ol>\n <li>\n <p>\n GNU\n </p>\n </li><li>\n <p>\n PHP\n </p>\n </li>\n </ol><ul><li>YAML</li></ul></div>",
+        );
+        let body = select(&html.root_element(), "div").unwrap();
+
+        assert_eq!(
+            body_content(&body).0.unwrap(),
+            "some examples:\n\n1. GNU\n2. PHP\n\n- YAML"
         );
     }
 
