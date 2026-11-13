@@ -33,6 +33,7 @@ const HTML_HEADERS: [(&str, &str); 2] = [
     ("User-Agent", "Mozilla/5.0"),
 ];
 const SYNDICATION_URL: &str = "https://cdn.syndication.twimg.com/tweet-result";
+const GUEST_ACTIVATE_URL: &str = "https://api.x.com/1.1/guest/activate.json";
 // the web client's public bearer, the account cookies carry the login
 pub(super) const BEARER: &str = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 // the graphql status query the web client runs, ids and flags from a browser capture
@@ -294,17 +295,28 @@ impl TwitterSource {
         {
             fill_note_text(providers, entry).await;
         }
+        match self.guest_post(providers).await {
+            Ok(guest) => {
+                fill_stats(&mut post, &guest);
+                if let (Some(quote), Some(guest)) = (quote.as_mut(), guest.quote.as_deref()) {
+                    fill_stats(quote, guest);
+                }
+            }
+            Err(HttpError(_, message)) => warn(
+                &json!({ "event": "guest_status", "platform": "twitter", "id": self.id, "error": message }),
+            ),
+        }
         Ok((post, reply_to, quote))
     }
 
-    async fn account_post(&self, env: &Env, providers: &Providers) -> Option<EmbedPost> {
+    fn status_query_url(&self) -> String {
         let variables = json!({
             "tweetId": self.id,
             "withCommunity": false,
             "includePromotedContent": false,
             "withVoice": false,
         });
-        let url = Url::parse_with_params(
+        Url::parse_with_params(
             &format!("https://api.x.com{STATUS_QUERY_PATH}"),
             [
                 ("variables", variables.to_string().as_str()),
@@ -312,12 +324,52 @@ impl TwitterSource {
                 ("fieldToggles", STATUS_FIELD_TOGGLES),
             ],
         )
-        .ok()?;
+        .unwrap()
+        .to_string()
+    }
+
+    // syndication leaves out views and reposts, the status query gives them to a guest
+    async fn guest_post(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
+        let region = providers.used().unwrap_or(REGIONS[0]);
+        let activation = providers
+            .fetch_raw(
+                region,
+                GUEST_ACTIVATE_URL,
+                &[("Authorization", BEARER), ("User-Agent", "Mozilla/5.0")],
+                RequestRedirect::Follow,
+                Some(""),
+            )
+            .await?;
+        let activated: Value = serde_json::from_str(&activation.body).unwrap_or_default();
+        let token = activated["guest_token"].as_str().ok_or_else(|| {
+            bad_gateway(format!("Guest activation returned {}", activation.status))
+        })?;
+
+        let response = providers
+            .fetch_raw(
+                region,
+                &self.status_query_url(),
+                &[
+                    ("Authorization", BEARER),
+                    ("Accept", "application/json"),
+                    ("User-Agent", "Mozilla/5.0"),
+                    ("x-guest-token", token),
+                ],
+                RequestRedirect::Follow,
+                None,
+            )
+            .await?;
+        let json: Value = serde_json::from_str(&response.body).unwrap_or_default();
+        post_from_graphql(&json["data"]["tweetResult"]["result"])
+            .ok_or_else(|| bad_gateway(format!("Guest status lookup returned {}", response.status)))
+    }
+
+    async fn account_post(&self, env: &Env, providers: &Providers) -> Option<EmbedPost> {
         let result = with_account(
             env,
             providers,
             "twitter",
-            url.as_str(),
+            &self.status_query_url(),
             &[
                 ("Authorization", BEARER),
                 ("Accept", "application/json"),
@@ -421,6 +473,12 @@ fn classify_status(response: &ProviderResponse) -> Attempt<Value> {
             response.status
         )),
         status => Attempt::Failed(format!("status lookup returned {status}: {body}")),
+    }
+}
+
+fn fill_stats(post: &mut EmbedPost, guest: &EmbedPost) {
+    if post.provider_id == guest.provider_id {
+        post.stats = guest.stats.clone();
     }
 }
 
@@ -743,6 +801,18 @@ mod tests {
         let components = component(&source.embed_html(&post, BASE))["components"].take();
         assert_eq!(components.as_array().unwrap().len(), 2);
         assert!(components.to_string().contains("Just words"));
+    }
+
+    #[test]
+    fn guest_stats_fill_the_status_they_belong_to() {
+        let guest = post_from_graphql(&graphql_status()).unwrap();
+        let mut post = reply_with_quote_post();
+        let mut quote = *post.quote.take().unwrap();
+        fill_stats(&mut post, &guest);
+        fill_stats(&mut quote, &guest);
+
+        assert_eq!(post.stats.unwrap().views, Some(1200));
+        assert_eq!(quote.stats.unwrap().views, None);
     }
 
     #[test]
