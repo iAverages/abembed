@@ -310,7 +310,7 @@ fn post_components(
     let counts = site
         .stats
         .iter()
-        .filter_map(|(icon, value)| Some(format!("{icon} {}", value(&stats)?)))
+        .filter_map(|(icon, value)| Some(format!("{icon} {}", short_count(value(&stats)?))))
         .collect::<Vec<_>>()
         .join("  ");
     let link = format!("[View on {}]({})", site.name, post.source_url);
@@ -320,6 +320,22 @@ fn post_components(
     };
     components.push(json!({ "type": 10, "content": footer }));
     components
+}
+
+fn short_count(count: u64) -> String {
+    let (unit, suffix) = match count {
+        0..1_000 => return count.to_string(),
+        1_000..1_000_000 => (1_000, "k"),
+        1_000_000..1_000_000_000 => (1_000_000, "M"),
+        _ => (1_000_000_000, "B"),
+    };
+
+    // truncated so 999_999 stays 999k instead of rounding up to 1000k
+    let tenths = count / (unit / 10);
+    match tenths < 1_000 && tenths % 10 != 0 {
+        true => format!("{}.{}{suffix}", tenths / 10, tenths % 10),
+        false => format!("{}{suffix}", tenths / 10),
+    }
 }
 
 fn divider() -> Value {
@@ -509,6 +525,26 @@ mod tests {
             (COMPONENT_EMBED_BYTE_LIMIT - 20..=COMPONENT_EMBED_BYTE_LIMIT).contains(&json.len()),
             "{}",
             json.len()
+        );
+    }
+
+    #[test]
+    fn shortens_counts_from_a_thousand_up() {
+        let counts = [
+            999,
+            1_000,
+            1_250,
+            10_000,
+            12_345,
+            123_456,
+            999_999,
+            2_500_000,
+            3_000_000_000,
+        ];
+
+        assert_eq!(
+            counts.map(short_count),
+            ["999", "1k", "1.2k", "10k", "12.3k", "123k", "999k", "2.5M", "3B"]
         );
     }
 
