@@ -8,4 +8,4 @@ authors = ["iAverages <me@danielraybone.com>"]
 crate-type = ["cdylib"]
 
 [dependencies]
-worker = "0.8"
+worker = "0.9"
