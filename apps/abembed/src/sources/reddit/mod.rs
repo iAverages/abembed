@@ -541,7 +541,7 @@ mod tests {
             .find(r#"**[@zepol_xela](https://www.reddit.com/user/zepol_xela/)**\n-# [r/osugame](https://www.reddit.com/r/osugame/)\nFurina in r/osugame? damn"#)
             .unwrap();
         let comment_footer = body
-            .find(r"\u003c:upvote:1570216024635347138> 1  \u003c:comment:1570216030788395029> 0  ·  [View on Reddit](https://www.reddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/)")
+            .find(r"\u003c:upvote:1570216024635347138> 1  \u003c:comment:1570216030788395029> 0  ·  \u003ct:1793038540:R>  ·  [View on Reddit](https://www.reddit.com/r/osugame/comments/1xm08ih/comment/19roziotq9zur/)")
             .unwrap();
         let post_text = body
             .find(r#"**Replying to**\n**[@Novapierce_](https://www.reddit.com/user/Novapierce_/)**\n> **Title**\n> body"#)

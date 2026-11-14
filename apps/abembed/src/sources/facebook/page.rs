@@ -34,6 +34,8 @@ static REEL_OWNER_ID_PATTERN: LazyLock<Regex> =
 static VIDEO_ID_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:/reel/|/videos/(?:[^/?#]+/)?|[?&](?:v|video_id)=)(\d+)").unwrap()
 });
+static CREATION_TIME_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""creation_time":(\d+)"#).unwrap());
 static VIDEO_ID_PARAM: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""video_id":"(\d+)""#).unwrap());
 const VIDEO_ROUTE_MARKER: &str = r#""entity_id":{"source":"param","value":"video_id"}"#;
@@ -122,6 +124,9 @@ impl FacebookSource {
             reply_to: None,
             quote: None,
             translation: None,
+            created_at: CREATION_TIME_PATTERN
+                .captures(html)
+                .and_then(|captures| captures[1].parse().ok()),
         })
     }
 
@@ -182,6 +187,7 @@ impl FacebookSource {
             reply_to: None,
             quote: None,
             translation: None,
+            created_at: None,
         })
     }
 }
@@ -591,6 +597,7 @@ mod tests {
                 .iter()
                 .all(|media| media.kind == MediaKind::Image));
             assert_eq!(embed.description.as_deref(), Some("Facebook post"));
+            assert_eq!(embed.created_at, Some(1_787_633_246));
         }
     }
 

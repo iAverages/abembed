@@ -43,10 +43,10 @@ pub fn image_post_html(image_count: usize) -> String {
         .enumerate()
         .map(|(index, url)| json!({ "media": photo(&index.to_string(), url) }))
         .collect();
-    let post = json!({ "node_v2": { "attachments": [{ "styles": { "attachment": {
+    let post = json!({ "node_v2": { "creation_time": 1787633246, "attachments": [{ "styles": { "attachment": {
         "all_subattachments": { "nodes": images },
     } } }] } });
-    let related = json!({ "edges": [{ "node": { "media": photo("9", "https://scontent.xx.fbcdn.net/related.jpg") } }] });
+    let related = json!({ "edges": [{ "node": { "creation_time": 1784997458, "media": photo("9", "https://scontent.xx.fbcdn.net/related.jpg") } }] });
     format!(
         r#"<!doctype html><html><head>
         <meta property="og:title" content="Facebook author">

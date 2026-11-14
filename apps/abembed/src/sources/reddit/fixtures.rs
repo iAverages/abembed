@@ -29,7 +29,7 @@ fn page(data: Value, body: &str) -> String {
 fn post_page(kind: &str, url: &str, body: &str) -> String {
     page(
         json!({
-            "post": { "id": format!("t3_{POST_ID}"), "url": url, "nsfw": false, "type": kind },
+            "post": { "id": format!("t3_{POST_ID}"), "url": url, "nsfw": false, "created_timestamp": 1793633351455_u64, "type": kind },
             "subreddit": { "name": SUBREDDIT },
         }),
         body,
@@ -39,7 +39,7 @@ fn post_page(kind: &str, url: &str, body: &str) -> String {
 fn comment_page(content_type: Option<&str>, body: &str) -> String {
     page(
         json!({
-            "comment": { "id": format!("t1_{COMMENT_ID}"), "post_id": format!("t3_{POST_ID}"), "score": 1372, "content_type": content_type },
+            "comment": { "id": format!("t1_{COMMENT_ID}"), "post_id": format!("t3_{POST_ID}"), "score": 1372, "created_timestamp": 1793038540861_u64, "content_type": content_type },
             "subreddit": { "name": SUBREDDIT },
         }),
         body,

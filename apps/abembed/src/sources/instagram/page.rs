@@ -59,6 +59,7 @@ impl InstagramSource {
             reply_to: None,
             quote: None,
             translation: None,
+            created_at: metadata.created_at,
         })
     }
 }
@@ -68,6 +69,7 @@ struct Metadata {
     author: Option<Author>,
     description: Option<String>,
     stats: Stats,
+    created_at: Option<u64>,
 }
 
 fn extract_metadata(scripts: &[String], shortcode: &str) -> Metadata {
@@ -114,6 +116,7 @@ fn apply_record_metadata(record: &Map<String, Value>, metadata: &mut Metadata) {
     stats.likes = likes.or(stats.likes);
     stats.shares = shares.or(stats.shares);
     stats.comments = comments.or(stats.comments);
+    metadata.created_at = number(record, "taken_at").or(metadata.created_at);
     metadata.author = author.or(metadata.author.take());
     metadata.description = caption
         .map(|desc| desc.to_string())
@@ -319,6 +322,7 @@ mod tests {
         assert_eq!(media_urls(&embed), [IMAGE_ONE, IMAGE_TWO]);
         assert_eq!(embed.media[0].width, Some(640));
         assert_eq!(embed.description.as_deref(), Some("Instagram description"));
+        assert_eq!(embed.created_at, Some(1_784_594_766));
         assert_eq!(author_name(author), "Poster Name (@poster)");
         assert_eq!(author.avatar_url.as_deref(), Some(AVATAR_URL));
         assert_eq!(

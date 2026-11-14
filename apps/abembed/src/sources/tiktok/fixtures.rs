@@ -42,6 +42,7 @@ fn video_page_with_audio(audio: Value) -> String {
         json!({ "__DEFAULT_SCOPE__": { "webapp.video-detail": { "itemInfo": { "itemStruct": {
             "id": VIDEO_ID,
             "desc": "Coffee time",
+            "createTime": "1784688572",
             "author": { "uniqueId": USERNAME, "nickname": "Kopi Lawak", "avatarThumb": AVATAR_URL },
             "stats": { "diggCount": 21, "shareCount": 5, "commentCount": 8, "playCount": 100 },
             "video": {

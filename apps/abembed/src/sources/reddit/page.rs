@@ -67,6 +67,7 @@ impl RedditSource {
             reply_to: None,
             quote: None,
             translation: None,
+            created_at: thing["created_timestamp"].as_u64().map(|ms| ms / 1000),
         })
     }
 }
@@ -392,6 +393,7 @@ mod tests {
             embed.title.as_deref(),
             Some("I don't like this but it's right")
         );
+        assert_eq!(embed.created_at, Some(1_793_633_351));
         assert_eq!(embed.author.unwrap().username, AUTHOR);
         assert_eq!((stats.likes, stats.comments), (Some(9196), Some(1312)));
     }
@@ -516,6 +518,7 @@ mod tests {
             embed.description.as_deref(),
             Some("Furina in r/osugame? damn")
         );
+        assert_eq!(embed.created_at, Some(1_793_038_540));
         assert_eq!(embed.author.unwrap().username, "zepol_xela");
         assert_eq!((stats.likes, stats.comments), (Some(1), Some(0)));
     }

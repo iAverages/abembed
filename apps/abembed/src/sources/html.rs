@@ -313,12 +313,17 @@ fn post_components(
         .filter_map(|(icon, value)| Some(format!("{icon} {}", short_count(value(&stats)?))))
         .collect::<Vec<_>>()
         .join("  ");
+
+    let date = post.created_at.map(|seconds| format!("<t:{seconds}:R>"));
     let link = format!("[View on {}]({})", site.name, post.source_url);
-    let footer = match counts.is_empty() {
-        true => link,
-        false => format!("{counts}  ·  {link}"),
-    };
-    components.push(json!({ "type": 10, "content": footer }));
+    let footer: Vec<String> = (!counts.is_empty())
+        .then_some(counts)
+        .into_iter()
+        .chain(date)
+        .chain([link])
+        .collect();
+
+    components.push(json!({ "type": 10, "content": footer.join("  ·  ") }));
     components
 }
 
@@ -503,6 +508,7 @@ mod tests {
             reply_to: reply_to.map(Box::new),
             quote: None,
             translation: None,
+            created_at: None,
         }
     }
 
@@ -698,6 +704,17 @@ mod tests {
                 (12, "m2 m3".to_string()),
                 (10, FOOTER.to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn dated_posts_show_when_they_were_posted_before_the_link() {
+        let mut embed = post("text", None);
+        embed.created_at = Some(1_790_416_830);
+
+        assert_eq!(
+            limited_components(&embed, MEDIA_GALLERY_ITEM_LIMIT)[1],
+            (10, format!("<t:1790416830:R>  ·  {FOOTER}"))
         );
     }
 

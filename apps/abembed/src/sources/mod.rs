@@ -753,6 +753,8 @@ pub struct EmbedPost {
     pub quote: Option<Box<EmbedPost>>,
     #[serde(default)]
     pub translation: Option<Translation>,
+    #[serde(default)]
+    pub created_at: Option<u64>,
 }
 
 impl EmbedPost {
@@ -869,6 +871,7 @@ mod tests {
             reply_to: None,
             quote: None,
             translation: None,
+            created_at: None,
         }
     }
 

@@ -27,6 +27,7 @@ pub fn carousel_html() -> String {
             "caption": { "text": "Instagram description" },
             "carousel_media": [image_node(IMAGE_ONE), image_node(IMAGE_TWO)],
             "shortcode": SHORTCODE,
+            "taken_at": 1784594766,
             "comment_count": 4,
             "like_count": 12,
             "reshare_count": 3,

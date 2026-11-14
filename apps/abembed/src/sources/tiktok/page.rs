@@ -68,15 +68,15 @@ impl TikTokSource {
             &item["statsV2"]
         };
 
-        Ok((
-            self.embed(
-                &item["desc"],
-                &item["author"],
-                stats,
-                vec![new_media(MediaKind::Video, url, video)],
-            ),
-            audio,
-        ))
+        let mut embed = self.embed(
+            &item["desc"],
+            &item["author"],
+            stats,
+            vec![new_media(MediaKind::Video, url, video)],
+        );
+        embed.created_at = count(&item["createTime"]).or(embed.created_at);
+
+        Ok((embed, audio))
     }
 
     pub(super) fn video_from_embed(&self, html: &str) -> Result<EmbedPost, HttpError> {
@@ -167,6 +167,8 @@ impl TikTokSource {
             reply_to: None,
             quote: None,
             translation: None,
+            // embed pages have no date, ids hold the second their upload began above 32 bits
+            created_at: self.id.parse::<u64>().ok().map(|id| id >> 32),
         }
     }
 
@@ -304,6 +306,7 @@ mod tests {
         assert_eq!(query["file_id"], "d2f2");
         assert_eq!((video.width, video.height), (Some(720), Some(1280)));
         assert_eq!(embed.description.as_deref(), Some("Coffee time"));
+        assert_eq!(embed.created_at, Some(1_784_688_572));
         assert_eq!(author.display_name.as_deref(), Some("Kopi Lawak"));
         assert_eq!(author.avatar_url.as_deref(), Some(AVATAR_URL));
         assert_eq!(
@@ -371,6 +374,7 @@ mod tests {
 
         assert_eq!(embed.media[0].url, proxied_video_url(EMBED_VIDEO_URL));
         assert_eq!(embed.media[0].width, Some(720));
+        assert_eq!(embed.created_at, Some(1_784_688_566));
         assert_eq!(embed.stats.unwrap().likes, Some(21));
     }
 

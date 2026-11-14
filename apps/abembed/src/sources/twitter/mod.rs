@@ -738,7 +738,7 @@ mod tests {
             format!("{BASE}/EliasLou_st/status/{STATUS_ID}/avatar")
         );
         assert_eq!(components[1]["items"][0]["media"]["url"], media_route(0));
-        assert_eq!(components[2]["content"], format!("<:comment:1570216030788395029> 3  <:repost:1570216026900009021> 4  <:like:1570216034164801686> 12  ·  [View on X / Twitter](https://x.com/MocaRelaxSpace/status/{STATUS_ID})"));
+        assert_eq!(components[2]["content"], format!("<:comment:1570216030788395029> 3  <:repost:1570216026900009021> 4  <:like:1570216034164801686> 12  ·  <t:1790416830:R>  ·  [View on X / Twitter](https://x.com/MocaRelaxSpace/status/{STATUS_ID})"));
         assert_eq!(components[3]["type"], 14);
         assert_eq!(
             components[4]["components"][0]["content"],

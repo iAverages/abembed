@@ -65,6 +65,7 @@ pub(super) fn post_from_tweet(tweet: &Value) -> Option<EmbedPost> {
         reply_to: None,
         quote: None,
         translation: None,
+        created_at: created_at(id),
     })
 }
 
@@ -133,7 +134,18 @@ pub(super) fn post_from_graphql(result: &Value) -> Option<EmbedPost> {
         reply_to: None,
         quote: post_from_graphql(&tweet["quoted_status_result"]["result"]).map(Box::new),
         translation: None,
+        created_at: created_at(id),
     })
+}
+
+// status ids hold the milliseconds since this epoch above their lowest 22 bits
+const SNOWFLAKE_EPOCH_MS: u64 = 1_288_834_974_657;
+// ids up to this one were handed out in order, before the 4th of november 2010
+const LAST_SEQUENTIAL_ID: u64 = 29_700_859_247;
+
+fn created_at(id: &str) -> Option<u64> {
+    let id = id.parse::<u64>().ok()?;
+    (id > LAST_SEQUENTIAL_ID).then(|| ((id >> 22) + SNOWFLAKE_EPOCH_MS) / 1000)
 }
 
 fn avatar_url(url: &str) -> Option<String> {
@@ -407,6 +419,13 @@ mod tests {
         assert_eq!(quote.description.as_deref(), Some("A long note"));
         assert_eq!(quote.media[0].url, HIGH_VIDEO_URL);
         assert!(post_from_graphql(&json!({ "__typename": "TweetTombstone" })).is_none());
+    }
+
+    #[test]
+    fn dates_statuses_from_their_snowflake_id() {
+        assert_eq!(created_at(STATUS_ID), Some(1_790_416_830));
+        assert_eq!(created_at("1585341984679469056"), Some(1_666_809_958));
+        assert_eq!(created_at("20"), None);
     }
 
     #[test]
