@@ -18,6 +18,9 @@ jobs:
 
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       abembed: ${{ steps.filter.outputs.abembed }}
       provider: ${{ steps.filter.outputs.provider }}
@@ -27,9 +30,18 @@ jobs:
       gif-service: ${{ steps.filter.outputs.gif-service }}
     steps:
       - uses: actions/checkout@v4
+      # a failed or cancelled run deployed nothing, so its changes count towards the next one
+      - name: Find the last successful deploy
+        id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(gh run list --workflow deploy.yaml --branch "$GITHUB_REF_NAME" --status success --limit 1 --json headSha --jq '.[0].headSha // empty')"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: ${{ steps.last.outputs.sha }}
           filters: |
             workspace: &workspace
               - Cargo.toml
