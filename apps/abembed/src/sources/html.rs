@@ -337,7 +337,7 @@ fn short_count(count: u64) -> String {
 
     // truncated so 999_999 stays 999k instead of rounding up to 1000k
     let tenths = count / (unit / 10);
-    match tenths < 1_000 && tenths % 10 != 0 {
+    match tenths < 1_000 && !tenths.is_multiple_of(10) {
         true => format!("{}.{}{suffix}", tenths / 10, tenths % 10),
         false => format!("{}{suffix}", tenths / 10),
     }
