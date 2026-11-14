@@ -2,6 +2,20 @@ name: Deploy
 on:
   push:
     branches: ["main", "staging"]
+  workflow_dispatch:
+    inputs:
+      abembed:
+        type: boolean
+      provider:
+        type: boolean
+      proxy:
+        type: boolean
+      api:
+        type: boolean
+      embed-image-service:
+        type: boolean
+      gif-service:
+        type: boolean
 
 permissions:
   contents: read
@@ -22,12 +36,12 @@ jobs:
       contents: read
       actions: read
     outputs:
-      abembed: ${{ steps.filter.outputs.abembed }}
-      provider: ${{ steps.filter.outputs.provider }}
-      proxy: ${{ steps.filter.outputs.proxy }}
-      api: ${{ steps.filter.outputs.api }}
-      embed-image-service: ${{ steps.filter.outputs.embed-image-service }}
-      gif-service: ${{ steps.filter.outputs.gif-service }}
+      abembed: ${{ inputs.abembed || steps.filter.outputs.abembed }}
+      provider: ${{ inputs.provider || steps.filter.outputs.provider }}
+      proxy: ${{ inputs.proxy || steps.filter.outputs.proxy }}
+      api: ${{ inputs.api || steps.filter.outputs.api }}
+      embed-image-service: ${{ inputs.embed-image-service || steps.filter.outputs.embed-image-service }}
+      gif-service: ${{ inputs.gif-service || steps.filter.outputs.gif-service }}
     steps:
       - uses: actions/checkout@v4
       # a failed or cancelled run deployed nothing, so its changes count towards the next one
