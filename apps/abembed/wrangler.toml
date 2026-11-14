@@ -118,6 +118,12 @@ routes = [
   { pattern = "abembed.com", custom_domain = true },
   { pattern = "www.abembed.com", custom_domain = true },
 
+  # force full embed domains
+  { pattern = "f.abinstagram.com", custom_domain = true },
+  { pattern = "f.abtiktok.com", custom_domain = true },
+  { pattern = "f.abfacebook.com", custom_domain = true },
+  { pattern = "f.abembed.com", custom_domain = true },
+
   # wrangler preview deployments
   { pattern = "previews.abembed.com", custom_domain = true, enabled = false, previews_enabled = true },
   { pattern = "previews.abfacebook.com", custom_domain = true, enabled = false, previews_enabled = true },

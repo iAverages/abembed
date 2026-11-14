@@ -153,9 +153,11 @@ pub async fn embed<S: Source>(
 
     let post = load_post(env, source).await?;
     let base = media_base(S::HOSTS, S::PLATFORM, headers);
-    Ok(embed_response(&post, S::FORCE_FULL_EMBED, || {
-        source.embed_html(&post, &base)
-    }))
+    Ok(embed_response(
+        &post,
+        S::FORCE_FULL_EMBED || forces_full_embed(headers),
+        || source.embed_html(&post, &base),
+    ))
 }
 
 pub async fn media(env: &Env, source: &impl Source, file: &str) -> Result<Response, HttpError> {
@@ -286,6 +288,10 @@ pub fn redirect(location: &str) -> Response {
         ],
     )
         .into_response()
+}
+
+pub fn forces_full_embed(headers: &HeaderMap) -> bool {
+    header_str(headers, header::HOST).starts_with("f.")
 }
 
 pub fn is_platform_host(hosts: &[&str], host_header: &str) -> bool {
@@ -947,6 +953,14 @@ mod tests {
         let response = embed_response(&post, true, || "<html>".to_string());
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn f_subdomain_forces_the_full_embed() {
+        assert!(forces_full_embed(&host("f.abinstagram.com")));
+        assert!(forces_full_embed(&host("f.abembed.com")));
+        assert!(!forces_full_embed(&host("abinstagram.com")));
+        assert!(!forces_full_embed(&host("fabinstagram.com")));
     }
 
     #[test]

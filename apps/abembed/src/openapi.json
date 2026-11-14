@@ -2,7 +2,7 @@
     "openapi": "3.1.0",
     "info": {
         "title": "abembed",
-        "description": "Embed proxy for Facebook, Instagram, TikTok, Reddit and X/Twitter posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, other posts get a component embed. Reddit and X/Twitter posts always get the component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
+        "description": "Embed proxy for Facebook, Instagram, TikTok, Reddit and X/Twitter posts. Swap the platform domain in a post link for abembed to get a Discord embed.\n\nEmbed routes redirect browsers to the original post. Posts with a single image or video redirect straight to the media, other posts get a component embed. Reddit and X/Twitter posts always get the component embed. Prefix the domain with `f.` (for example `f.abinstagram.com`) to always get the component embed. Media and avatar routes redirect to fresh CDN urls, so links to them keep working after the CDN urls expire.",
         "version": "1.0.0"
     },
     "servers": [{ "url": "https://staging.abembed.com" }],
