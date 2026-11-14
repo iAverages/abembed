@@ -3,9 +3,10 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_gateway, bad_request,
+    bad_gateway, bad_request, get_cached,
     html::{icon, Site},
-    log, warn, ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source, REGIONS,
+    log, post_cache, put_cached, redirect, redirects_browser, warn, ComponentQuery, EmbedPost,
+    HttpError, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
@@ -93,6 +94,10 @@ async fn media(
     }
 
     let source = FacebookSource::new(path, uri.query())?;
+    if source.path.starts_with("share/") && redirects_browser(&env, &headers) {
+        let url = source.shared_url(&env).await;
+        return Ok(redirect(&url.unwrap_or_else(|_| source.source_url())));
+    }
     super::embed(&env, &source, &headers).await
 }
 
@@ -262,6 +267,27 @@ impl FacebookSource {
         format!("https://www.facebook.com/{owner}/posts/{}/", self.id)
     }
 
+    async fn share_target(&self, providers: &Providers) -> Result<Self, HttpError> {
+        providers
+            .fetch_redirect(&self.source_url(), &DESKTOP_HEADERS, |location| {
+                Self::from_url(location).filter(|target| !target.path.starts_with("share/"))
+            })
+            .await
+    }
+
+    async fn shared_url(&self, env: &Env) -> Result<String, HttpError> {
+        let cache = post_cache(env)?;
+        let key = format!("embed-alias:v1:facebook:{}", self.path);
+        if let Some(url) = get_cached(&cache, &key).await {
+            return Ok(url);
+        }
+
+        let providers = Providers::for_platform(env, Self::PLATFORM)?;
+        let url = self.share_target(&providers).await?.source_url();
+        put_cached(&cache, &key, &url).await;
+        Ok(url)
+    }
+
     // hosting/datacenter/server ips only get the login page for photo and permalink links, but
     // `/{owner}/posts/{id}` is served to them with the same media and details. Reels, videos and
     // group posts are fine as they are. A photo inside a multi photo post gets a page without
@@ -269,10 +295,7 @@ impl FacebookSource {
     async fn anonymous_url(&self, providers: &Providers) -> String {
         let mut target = None;
         if self.path.starts_with("share/") {
-            target = providers
-                .fetch_redirect(&self.source_url(), &DESKTOP_HEADERS, Self::from_url)
-                .await
-                .ok();
+            target = self.share_target(providers).await.ok();
         }
         let source = target.as_ref().unwrap_or(self);
         let owner = match (source.owner(), source.album()) {

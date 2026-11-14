@@ -538,18 +538,7 @@ pub fn build_passthrough_redirect(uri: &Uri, route_prefix: &str, target_base: &s
         .unwrap_or(uri.path())
         .trim_start_matches('/');
 
-    let mut redirect_url = if path.is_empty() {
-        format!("{}/", target_base.trim_end_matches('/'))
-    } else {
-        format!("{}/{}", target_base.trim_end_matches('/'), path)
-    };
-
-    if let Some(query) = uri.query() {
-        redirect_url.push('?');
-        redirect_url.push_str(query);
-    }
-
-    redirect_url
+    format!("{}/{}", target_base.trim_end_matches('/'), path)
 }
 
 fn spotify_open_response(web_url: &str) -> Response {
@@ -932,15 +921,12 @@ mod tests {
     }
 
     #[test]
-    fn passthrough_redirect_keeps_wildcard_and_query() {
+    fn passthrough_redirect_keeps_wildcard_and_drops_query() {
         let uri: Uri = "/prerelease/track/abc123?si=xyz&foo=bar".parse().unwrap();
 
         let redirect = build_passthrough_redirect(&uri, "/prerelease", "https://open.spotify.com/");
 
-        assert_eq!(
-            redirect,
-            "https://open.spotify.com/track/abc123?si=xyz&foo=bar"
-        );
+        assert_eq!(redirect, "https://open.spotify.com/track/abc123");
     }
 
     #[test]
@@ -949,16 +935,16 @@ mod tests {
 
         let redirect = build_passthrough_redirect(&uri, "/prerelease", "https://open.spotify.com");
 
-        assert_eq!(redirect, "https://open.spotify.com/?foo=bar");
+        assert_eq!(redirect, "https://open.spotify.com/");
     }
 
     #[test]
     fn passthrough_redirect_handles_empty_prefix() {
-        let uri: Uri = "/track/abc123?si=xyz".parse().unwrap();
+        let uri: Uri = "/artist/abc123?si=xyz".parse().unwrap();
 
         let redirect = build_passthrough_redirect(&uri, "", "https://open.spotify.com");
 
-        assert_eq!(redirect, "https://open.spotify.com/track/abc123?si=xyz");
+        assert_eq!(redirect, "https://open.spotify.com/artist/abc123");
     }
 
     #[test]

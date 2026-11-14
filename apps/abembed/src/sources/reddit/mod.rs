@@ -139,11 +139,12 @@ async fn share_embed(
     Path((subreddit, code)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    if redirects_browser(&env, &headers) {
-        return Ok(redirect(&share_url(&subreddit, &code)?));
-    }
-
-    let source = resolve_share_link(&env, &subreddit, &code).await?;
+    let source = match resolve_share_link(&env, &subreddit, &code).await {
+        Err(_) if redirects_browser(&env, &headers) => {
+            return Ok(redirect(&share_url(&subreddit, &code)?));
+        }
+        source => source?,
+    };
     super::embed(&env, &source, &headers).await
 }
 

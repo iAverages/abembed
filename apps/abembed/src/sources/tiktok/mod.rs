@@ -81,11 +81,12 @@ async fn short_media(
     Path(shortcode): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    if redirects_browser(&env, &headers) {
-        return Ok(redirect(&short_url(&shortcode)?));
-    }
-
-    let source = resolve_short_link(&env, &shortcode).await?;
+    let source = match resolve_short_link(&env, &shortcode).await {
+        Err(_) if redirects_browser(&env, &headers) => {
+            return Ok(redirect(&short_url(&shortcode)?));
+        }
+        source => source?,
+    };
     super::embed(&env, &source, &headers).await
 }
 
