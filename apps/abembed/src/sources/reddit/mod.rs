@@ -3,9 +3,9 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, get_cached,
+    bad_request, browser_redirect, get_cached,
     html::{icon, Site},
-    post_cache, put_cached, redirect, redirects_browser, sized, warn, ComponentQuery, EmbedPost,
+    post_cache, put_cached, redirects_browser, share_link, sized, warn, ComponentQuery, EmbedPost,
     HttpError, Media, Providers, Source,
 };
 use axum::{
@@ -138,14 +138,19 @@ async fn share_embed(
     State(env): State<Env>,
     Path((subreddit, code)): Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = match resolve_share_link(&env, &subreddit, &code).await {
-        Err(_) if redirects_browser(&env, &headers) => {
-            return Ok(redirect(&share_url(&subreddit, &code)?));
-        }
-        source => source?,
+) -> Response {
+    let result = async {
+        let source = match resolve_share_link(&env, &subreddit, &code).await {
+            Err(_) if redirects_browser(&env, &headers) => {
+                return Ok(browser_redirect::<RedditSource>(&share_url(
+                    &subreddit, &code,
+                )?));
+            }
+            source => source?,
+        };
+        super::embed(&env, &source, &headers).await
     };
-    super::embed(&env, &source, &headers).await
+    share_link::<RedditSource>("embed", &headers, result.await)
 }
 
 #[worker::send]
@@ -153,9 +158,12 @@ async fn share_post_api(
     State(env): State<Env>,
     Path((subreddit, code)): Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = resolve_share_link(&env, &subreddit, &code).await?;
-    super::api(&env, &source, &headers).await
+) -> Response {
+    let result = async {
+        let source = resolve_share_link(&env, &subreddit, &code).await?;
+        super::api(&env, &source, &headers).await
+    };
+    share_link::<RedditSource>("api", &headers, result.await)
 }
 
 #[worker::send]
@@ -174,9 +182,12 @@ async fn share_component_api(
     Path((subreddit, code)): Path<(String, String)>,
     Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = resolve_share_link(&env, &subreddit, &code).await?;
-    super::component(&env, &source, &headers, &query).await
+) -> Response {
+    let result = async {
+        let source = resolve_share_link(&env, &subreddit, &code).await?;
+        super::component(&env, &source, &headers, &query).await
+    };
+    share_link::<RedditSource>("component", &headers, result.await)
 }
 
 fn share_url(subreddit: &str, code: &str) -> Result<String, HttpError> {

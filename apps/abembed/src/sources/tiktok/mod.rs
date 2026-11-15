@@ -3,9 +3,9 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, get_cached,
+    bad_request, browser_redirect, get_cached,
     html::{icon, Site},
-    merged_video_url, post_cache, put_cached, redirect, redirects_browser, sized, warn,
+    merged_video_url, post_cache, put_cached, redirects_browser, share_link, sized, warn,
     ComponentQuery, EmbedPost, HttpError, Providers, Source,
 };
 use axum::{
@@ -80,14 +80,17 @@ async fn short_media(
     State(env): State<Env>,
     Path(shortcode): Path<String>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = match resolve_short_link(&env, &shortcode).await {
-        Err(_) if redirects_browser(&env, &headers) => {
-            return Ok(redirect(&short_url(&shortcode)?));
-        }
-        source => source?,
+) -> Response {
+    let result = async {
+        let source = match resolve_short_link(&env, &shortcode).await {
+            Err(_) if redirects_browser(&env, &headers) => {
+                return Ok(browser_redirect::<TikTokSource>(&short_url(&shortcode)?));
+            }
+            source => source?,
+        };
+        super::embed(&env, &source, &headers).await
     };
-    super::embed(&env, &source, &headers).await
+    share_link::<TikTokSource>("embed", &headers, result.await)
 }
 
 #[worker::send]
@@ -105,9 +108,12 @@ async fn short_post_api(
     State(env): State<Env>,
     Path(shortcode): Path<String>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = resolve_short_link(&env, &shortcode).await?;
-    super::api(&env, &source, &headers).await
+) -> Response {
+    let result = async {
+        let source = resolve_short_link(&env, &shortcode).await?;
+        super::api(&env, &source, &headers).await
+    };
+    share_link::<TikTokSource>("api", &headers, result.await)
 }
 
 #[worker::send]
@@ -127,9 +133,12 @@ async fn short_component_api(
     Path(shortcode): Path<String>,
     Query(query): Query<ComponentQuery>,
     headers: HeaderMap,
-) -> Result<Response, HttpError> {
-    let source = resolve_short_link(&env, &shortcode).await?;
-    super::component(&env, &source, &headers, &query).await
+) -> Response {
+    let result = async {
+        let source = resolve_short_link(&env, &shortcode).await?;
+        super::component(&env, &source, &headers, &query).await
+    };
+    share_link::<TikTokSource>("component", &headers, result.await)
 }
 
 #[worker::send]

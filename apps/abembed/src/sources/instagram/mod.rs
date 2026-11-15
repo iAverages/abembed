@@ -5,7 +5,7 @@ mod page;
 use super::{
     bad_request, gallery_html,
     html::{escape_html, icon, meta_name, meta_property, Site},
-    log, ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source,
+    ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
@@ -15,7 +15,6 @@ use axum::{
     routing::get,
     Router,
 };
-use serde_json::json;
 use worker::{Env, RequestRedirect};
 
 const BROWSER_USER_AGENT: &str = "Mozilla/5.0";
@@ -262,9 +261,7 @@ impl Source for InstagramSource {
             Ok(post) if !post.media.is_empty() => Ok(post),
             anonymous => match resolve_with_account(env, self, providers).await {
                 Some(authed) => {
-                    log(
-                        &json!({ "event": "account_resolved", "platform": "instagram", "id": self.shortcode }),
-                    );
+                    providers.account_resolved(Self::PLATFORM, &self.shortcode);
                     Ok(authed)
                 }
                 None => anonymous,

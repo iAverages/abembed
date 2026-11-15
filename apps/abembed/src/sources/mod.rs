@@ -5,10 +5,12 @@ pub mod reddit;
 pub mod tiktok;
 pub mod twitter;
 
+use crate::analytics::Event;
 use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
+use common::{consumer, header_str, is_browser_navigation, EventName};
 use html::{
     discord_component_json, discord_image_post_html, Site, MEDIA_GALLERY_ITEM_LIMIT,
     MESSAGE_MEDIA_LIMIT,
@@ -17,8 +19,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{cell::Cell, iter};
 use worker::{
-    js_sys, web_sys, Env, Fetch, Fetcher, Headers, HttpResponse, KvStore, Method, RequestInit,
-    RequestRedirect, Url,
+    js_sys, web_sys, Date, Env, Fetch, Fetcher, Headers, HttpResponse, KvStore, Method,
+    RequestInit, RequestRedirect, Url,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -62,20 +64,6 @@ pub fn sized(value: &str, len: std::ops::RangeInclusive<usize>, allowed: fn(u8) 
     len.contains(&value.len()) && value.bytes().all(allowed)
 }
 
-pub fn header_str(headers: &HeaderMap, name: header::HeaderName) -> &str {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-}
-
-// crawlers like discordbot also claim `Mozilla/` and accept html
-pub fn is_browser_navigation(headers: &HeaderMap) -> bool {
-    headers
-        .get("sec-fetch-mode")
-        .is_some_and(|mode| mode == "navigate")
-}
-
 pub fn redirects_browser(env: &Env, headers: &HeaderMap) -> bool {
     is_browser_navigation(headers)
         && !env
@@ -98,6 +86,10 @@ pub trait Source {
 
     fn redirect_url(&self) -> String {
         self.source_url()
+    }
+
+    fn link_kind(&self) -> &'static str {
+        "canonical"
     }
 
     fn media_url(&self, base: &str, media: &str) -> String;
@@ -148,16 +140,116 @@ pub async fn embed<S: Source>(
     headers: &HeaderMap,
 ) -> Result<Response, HttpError> {
     if redirects_browser(env, headers) {
-        return Ok(redirect(&source.redirect_url()));
+        return Ok(browser_redirect::<S>(&source.redirect_url()));
     }
 
-    let post = load_post(env, source).await?;
+    tracked(env, source, headers, "embed", |post, base| {
+        Ok(embed_response(
+            post,
+            S::FORCE_FULL_EMBED || forces_full_embed(headers),
+            || source.embed_html(post, base),
+        ))
+    })
+    .await
+}
+
+pub fn browser_redirect<S: Source>(location: &str) -> Response {
+    let mut response = redirect(location);
+    response.extensions_mut().insert(Event(
+        EventName::LinkClicked,
+        json!({ "platform": S::PLATFORM }),
+    ));
+    response
+}
+
+async fn tracked<S: Source>(
+    env: &Env,
+    source: &S,
+    headers: &HeaderMap,
+    endpoint: &'static str,
+    respond: impl FnOnce(&EmbedPost, &str) -> Result<Response, HttpError>,
+) -> Result<Response, HttpError> {
+    let mut props = request_props::<S>(endpoint, headers);
+    props["link_kind"] = source.link_kind().into();
+
+    let started = Date::now().as_millis();
+    let post = load_traced(env, source, &mut props).await;
+    props["duration_ms"] = (Date::now().as_millis() - started).into();
+
+    let gated = post
+        .as_ref()
+        .is_ok_and(|post| S::GATED_WHEN_EMPTY && post.media.is_empty());
+    if let Ok(post) = &post {
+        props["media_count"] = post.media.len().into();
+        props["media_kinds"] = json!(media_kinds(post));
+        if let Some(translation) = &post.translation {
+            props["translation_lang"] = translation.target_lang.as_str().into();
+            props["translation_provider"] = translation.provider.as_str().into();
+        }
+    }
+
     let base = media_base(S::HOSTS, S::PLATFORM, headers);
-    Ok(embed_response(
-        &post,
-        S::FORCE_FULL_EMBED || forces_full_embed(headers),
-        || source.embed_html(&post, &base),
-    ))
+    let mut response = post.and_then(|post| respond(&post, &base)).into_response();
+    props["status"] = response.status().as_u16().into();
+    props["outcome"] = outcome(gated, response.status()).into();
+    response
+        .extensions_mut()
+        .insert(Event(EventName::EmbedRequested, props));
+
+    Ok(response)
+}
+
+fn request_props<S: Source>(endpoint: &str, headers: &HeaderMap) -> Value {
+    let host = header_str(headers, header::HOST);
+    json!({
+        "platform": S::PLATFORM,
+        "endpoint": endpoint,
+        "consumer": consumer(header_str(headers, header::USER_AGENT)),
+        "host": host.split(':').next(),
+        "forced_full": forces_full_embed(headers),
+    })
+}
+
+fn outcome(gated: bool, status: StatusCode) -> &'static str {
+    match status {
+        _ if gated => "gated",
+        status if status.is_client_error() || status.is_server_error() => "error",
+        _ => "ok",
+    }
+}
+
+fn media_kinds(post: &EmbedPost) -> Vec<MediaKind> {
+    [MediaKind::Video, MediaKind::Image, MediaKind::Audio]
+        .into_iter()
+        .filter(|kind| post.media.iter().any(|media| media.kind == *kind))
+        .collect()
+}
+
+pub fn share_link<S: Source>(
+    endpoint: &'static str,
+    headers: &HeaderMap,
+    result: Result<Response, HttpError>,
+) -> Response {
+    let mut response = result.into_response();
+    let status = response.status();
+
+    match response.extensions_mut().get_mut::<Event>() {
+        Some(Event(EventName::EmbedRequested, props)) => props["link_kind"] = "share".into(),
+        Some(_) => {}
+        None => {
+            let mut props = request_props::<S>(endpoint, headers);
+
+            props["link_kind"] = "share".into();
+            props["status"] = status.as_u16().into();
+            props["outcome"] = outcome(false, status).into();
+
+            response
+                .extensions_mut()
+                .insert(Event(EventName::EmbedRequested, props));
+        }
+    }
+
+    response
 }
 
 pub async fn media(env: &Env, source: &impl Source, file: &str) -> Result<Response, HttpError> {
@@ -189,17 +281,19 @@ pub async fn api<S: Source>(
     source: &S,
     headers: &HeaderMap,
 ) -> Result<Response, HttpError> {
-    let post = load_post(env, source).await?;
-    if let Some(error) = gated_error(&post).filter(|_| S::GATED_WHEN_EMPTY) {
-        return Err(error);
-    }
-    let base = media_base(S::HOSTS, S::PLATFORM, headers);
-    let post = post_json(
-        &post,
-        |index| source.media_url(&base, &media_file(&post, index)),
-        &source.avatar_url(&base),
-    );
-    Ok(json_response(StatusCode::OK, &post))
+    tracked(env, source, headers, "api", |post, base| {
+        if let Some(error) = gated_error(post).filter(|_| S::GATED_WHEN_EMPTY) {
+            return Err(error);
+        }
+        let post = post_json(
+            post,
+            |index| source.media_url(base, &media_file(post, index)),
+            &source.avatar_url(base),
+        );
+
+        Ok(json_response(StatusCode::OK, &post))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -213,29 +307,31 @@ pub async fn component<S: Source>(
     headers: &HeaderMap,
     query: &ComponentQuery,
 ) -> Result<Response, HttpError> {
-    let post = load_post(env, source).await?;
-    if let Some(error) = gated_error(&post).filter(|_| S::GATED_WHEN_EMPTY) {
-        return Err(error);
-    }
-    let base = media_base(S::HOSTS, S::PLATFORM, headers);
-    let component = discord_component_json(
-        &S::SITE,
-        &post,
-        query
-            .media_limit
-            .unwrap_or(MEDIA_GALLERY_ITEM_LIMIT)
-            .min(MESSAGE_MEDIA_LIMIT),
-        |index| source.media_url(&base, &media_file(&post, index)),
-        |index| source.entry_avatar_url(&base, index),
-    );
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/json"),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        component,
-    )
-        .into_response())
+    tracked(env, source, headers, "component", |post, base| {
+        if let Some(error) = gated_error(post).filter(|_| S::GATED_WHEN_EMPTY) {
+            return Err(error);
+        }
+        let component = discord_component_json(
+            &S::SITE,
+            post,
+            query
+                .media_limit
+                .unwrap_or(MEDIA_GALLERY_ITEM_LIMIT)
+                .min(MESSAGE_MEDIA_LIMIT),
+            |index| source.media_url(base, &media_file(post, index)),
+            |index| source.entry_avatar_url(base, index),
+        );
+
+        Ok((
+            [
+                (header::CONTENT_TYPE, "application/json"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            component,
+        )
+            .into_response())
+    })
+    .await
 }
 
 pub fn gated_error(post: &EmbedPost) -> Option<HttpError> {
@@ -381,21 +477,33 @@ fn with_message(fields: &Value) -> Value {
 }
 
 pub async fn load_post<S: Source>(env: &Env, source: &S) -> Result<EmbedPost, HttpError> {
+    load_traced(env, source, &mut json!({})).await
+}
+
+async fn load_traced<S: Source>(
+    env: &Env,
+    source: &S,
+    props: &mut Value,
+) -> Result<EmbedPost, HttpError> {
     let cache = post_cache(env)?;
     let key = source.cache_key();
 
     if let Some(post) = get_cached(&cache, &key).await {
+        props["cache"] = "hit".into();
+
         log(&json!({
             "event": "embed",
             "platform": S::PLATFORM,
             "id": source.id(),
             "cache": "hit",
         }));
+
         return Ok(post);
     }
 
     let providers = Providers::for_platform(env, S::PLATFORM)?;
     let result = source.fetch(env, &providers).await;
+
     log(&json!({
         "event": "embed",
         "platform": S::PLATFORM,
@@ -405,6 +513,19 @@ pub async fn load_post<S: Source>(env: &Env, source: &S) -> Result<EmbedPost, Ht
         "media": result.as_ref().ok().map(|post| post.media.len()),
         "error": result.as_ref().err().map(|HttpError(_, message)| message),
     }));
+
+    props["cache"] = "miss".into();
+    props["provider"] = providers.used().into();
+    props["provider_failures"] = providers.failures.get().into();
+
+    if result.is_ok() {
+        props["resolved_via"] = match providers.account.get() {
+            true => "account",
+            false => "anonymous",
+        }
+        .into();
+    }
+
     let post = result?;
     put_cached(&cache, &key, &post).await;
 
@@ -487,6 +608,9 @@ pub struct Providers {
     providers: Vec<(String, Provider)>,
     // last provider that answered, used for logging
     used: Cell<Option<usize>>,
+    // failed attempts and whether an account had to step in, used for analytics
+    failures: Cell<usize>,
+    account: Cell<bool>,
     // log the start of failed responses
     debug: bool,
 }
@@ -496,6 +620,8 @@ impl Providers {
         Self {
             providers,
             used: Cell::new(None),
+            failures: Cell::new(0),
+            account: Cell::new(false),
             debug: env
                 .var(DEBUG_PROVIDERS_VAR)
                 .is_ok_and(|value| value.to_string() == "true"),
@@ -554,6 +680,16 @@ impl Providers {
             .map(|index| self.providers[index].0.as_str())
     }
 
+    pub fn account_resolved(&self, platform: &str, id: &str) {
+        self.account.set(true);
+        log(&json!({ "event": "account_resolved", "platform": platform, "id": id }));
+    }
+
+    fn failed(&self, fields: &Value) {
+        self.failures.set(self.failures.get() + 1);
+        warn(fields);
+    }
+
     pub async fn fetch<T>(
         &self,
         url: &str,
@@ -580,7 +716,7 @@ impl Providers {
                 });
             match result {
                 Ok(value) => return Ok(value),
-                Err(HttpError(_, message)) => warn(
+                Err(HttpError(_, message)) => self.failed(
                     &json!({ "event": "provider", "region": region, "url": url, "error": message }),
                 ),
             }
@@ -608,7 +744,7 @@ impl Providers {
                         .and_then(|location| parse(location.as_str()));
                     match target {
                         Some(value) => return Ok(value),
-                        None => warn(&json!({
+                        None => self.failed(&json!({
                             "event": "provider",
                             "region": region,
                             "url": url,
@@ -618,7 +754,7 @@ impl Providers {
                         })),
                     }
                 }
-                Err(HttpError(_, message)) => warn(
+                Err(HttpError(_, message)) => self.failed(
                     &json!({ "event": "provider", "region": region, "url": url, "error": message }),
                 ),
             }
@@ -823,22 +959,7 @@ pub struct Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
-        pairs
-            .iter()
-            .map(|(name, value)| (name.parse().unwrap(), value.parse().unwrap()))
-            .collect()
-    }
-
-    #[test]
-    fn browser_navigation_is_detected() {
-        assert!(is_browser_navigation(&headers(&[
-            ("user-agent", "Mozilla/5.0 Chrome/136.0.0.0"),
-            ("accept", "text/html"),
-            ("sec-fetch-mode", "navigate"),
-        ])));
-    }
+    use tiktok::TikTokSource;
 
     #[test]
     fn hosted_provider_urls_are_comma_separated() {
@@ -967,13 +1088,19 @@ mod tests {
     }
 
     #[test]
-    fn discordbot_is_not_a_browser_navigation() {
-        assert!(!is_browser_navigation(&headers(&[
-            (
-                "user-agent",
-                "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)"
-            ),
-            ("accept", "text/html"),
-        ])));
+    fn resolved_share_links_are_marked_on_their_embed_event() {
+        let mut embedded = redirect("https://cdn.example.com/one.jpg");
+        embedded.extensions_mut().insert(Event(
+            EventName::EmbedRequested,
+            json!({ "link_kind": "canonical" }),
+        ));
+        let embedded = share_link::<TikTokSource>("embed", &HeaderMap::new(), Ok(embedded));
+        let Event(_, props) = embedded.extensions().get().unwrap();
+        assert_eq!(props["link_kind"], "share");
+
+        let clicked = browser_redirect::<TikTokSource>("https://vm.tiktok.com/AbCd/");
+        let clicked = share_link::<TikTokSource>("embed", &HeaderMap::new(), Ok(clicked));
+        let Event(_, props) = clicked.extensions().get().unwrap();
+        assert_eq!(*props, json!({ "platform": "tiktok" }));
     }
 }

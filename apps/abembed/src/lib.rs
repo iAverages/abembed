@@ -1,5 +1,6 @@
 mod accounts;
 mod admin;
+mod analytics;
 mod sources;
 
 use axum::{
@@ -8,9 +9,9 @@ use axum::{
     routing::get,
     Router,
 };
+use common::header_str;
 use sources::{
     facebook::{self, FacebookSource},
-    header_str,
     instagram::{self, InstagramSource},
     is_platform_host,
     reddit::{self, RedditSource},
@@ -52,11 +53,17 @@ fn router(env: Env) -> Router {
 async fn fetch(
     req: HttpRequest,
     env: Env,
-    _ctx: Context,
+    ctx: Context,
 ) -> Result<axum::http::Response<axum::body::Body>> {
-    Ok(NormalizePath::trim_trailing_slash(router(env))
+    let mut response = NormalizePath::trim_trailing_slash(router(env.clone()))
         .call(rewrite_platform_host(req))
-        .await?)
+        .await?;
+
+    if let Some(event) = response.extensions_mut().remove::<analytics::Event>() {
+        ctx.wait_until(analytics::capture(env, event));
+    }
+
+    Ok(response)
 }
 
 // handle rerouting domains interanlly

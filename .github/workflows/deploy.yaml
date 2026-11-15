@@ -67,6 +67,7 @@ jobs:
               - *workspace
               - *nix
               - apps/abembed/**
+              - packages/common/**
             provider:
               - *workspace
               - *nix
@@ -79,6 +80,7 @@ jobs:
               - *workspace
               - *nix
               - apps/api/**
+              - packages/common/**
             embed-image-service:
               - *nix
               - package.json

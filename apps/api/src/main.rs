@@ -9,7 +9,8 @@ use self::embeds::image_client::EmbedImageClient;
 use self::embeds::preview::{
     get_album_page, get_episode_page, get_fallback_redirect, get_generated_album_image,
     get_generated_image, get_generated_playlist_image, get_playlist_page, get_preview_album_video,
-    get_preview_playlist_video, get_preview_video, get_track_page,
+    get_preview_playlist_video, get_preview_video, get_track_page, track_embed_request,
+    track_video_request,
 };
 use self::embeds::preview_generation::PreviewGeneration;
 use self::embeds::renderer::FfmpegRenderer;
@@ -19,7 +20,7 @@ use axum::extract::Request;
 use axum::http::uri::PathAndQuery;
 use axum::http::{HeaderValue, StatusCode, Uri};
 use axum::routing::get;
-use axum::{Router, ServiceExt};
+use axum::{Router, ServiceExt, middleware};
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use backblaze_b2_client::client::B2Client;
 use init_tracing_opentelemetry::{LogTimer, TracingConfig};
@@ -136,8 +137,17 @@ async fn main() {
                 .unwrap(),
         );
 
-    let app = Router::new()
-        .route("/health", get(get_health))
+    let pages = Router::new()
+        .route("/track/{trackId}", get(get_track_page))
+        .route("/episode/{episodeId}", get(get_episode_page))
+        .route("/album/{albumId}", get(get_album_page))
+        .route("/playlist/{playlistId}", get(get_playlist_page))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            track_embed_request,
+        ));
+
+    let videos = Router::new()
         .route(
             "/api/generate/video/album/{albumId}",
             get(get_preview_album_video),
@@ -147,6 +157,15 @@ async fn main() {
             get(get_preview_playlist_video),
         )
         .route("/api/generate/video/{trackId}", get(get_preview_video))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            track_video_request,
+        ));
+
+    let app = Router::new()
+        .merge(pages)
+        .merge(videos)
+        .route("/health", get(get_health))
         .route("/api/generate/image/{trackId}", get(get_generated_image))
         .route(
             "/api/generate/image/album/{albumId}",
@@ -156,10 +175,6 @@ async fn main() {
             "/api/generate/image/playlist/{playlistId}",
             get(get_generated_playlist_image),
         )
-        .route("/track/{trackId}", get(get_track_page))
-        .route("/episode/{episodeId}", get(get_episode_page))
-        .route("/album/{albumId}", get(get_album_page))
-        .route("/playlist/{playlistId}", get(get_playlist_page))
         .fallback(get_fallback_redirect)
         .layer(
             TraceLayer::new_for_http()

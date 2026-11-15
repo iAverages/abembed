@@ -96,6 +96,7 @@
             ./Cargo.lock
             (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ./apps)
             (lib.fileset.intersection (lib.fileset.fromSource src) ./apps/${app})
+            (lib.fileset.intersection (lib.fileset.fromSource src) ./packages/common)
           ];
         };
 

@@ -1,12 +1,19 @@
-use axum::extract::{Path, Query, RawQuery, State};
+use std::time::Instant;
+
+use axum::extract::{Path, Query, RawQuery, Request, State};
 use axum::http::Uri;
 use axum::http::{HeaderMap, StatusCode, header};
+use axum::middleware::Next;
 use axum::response::{Html as AxumHtml, IntoResponse, Redirect, Response};
 use bytes::Bytes;
+use common::{header_str, is_browser_navigation};
 use serde::Deserialize;
 
 use crate::AppState;
-use crate::embeds::preview_generation::{CacheStatus, PreloadedPreviewInput, normalize_track_id};
+use crate::embeds::VideoKind;
+use crate::embeds::preview_generation::{
+    CacheStatus, PreloadedPreviewInput, ServedPreview, normalize_track_id,
+};
 use crate::embeds::spotify_metadata::{
     SpotifyCollectionKind, SpotifyCollectionTrackMetadata, SpotifyPreviewMetadata,
 };
@@ -75,16 +82,14 @@ async fn get_collection_page(
         requested_track = query.track.as_deref().unwrap_or(""),
         "collection page request received"
     );
-    if !is_discord_request(&headers) {
+    if is_browser_navigation(&headers) {
         tracing::info!(
             collection_kind = collection_kind.path_segment(),
             collection_id = collection_id.as_str(),
             "collection page redirecting to spotify"
         );
         let redirect_url = spotify_collection_url(collection_kind, &collection_id);
-        state
-            .analytics
-            .spotify_redirect(collection_kind.path_segment(), "collection_page");
+        state.analytics.link_clicked();
         return Ok(spotify_open_response(&redirect_url));
     }
 
@@ -107,7 +112,7 @@ async fn get_collection_page(
         )
     };
 
-    ensure_collection_video(
+    let (_, generation) = ensure_collection_video(
         &state,
         collection_kind,
         &collection_id,
@@ -153,7 +158,7 @@ async fn get_collection_page(
         &collection_image_url,
     );
 
-    Ok(AxumHtml(block).into_response())
+    Ok(embed_page(block, generation))
 }
 
 #[axum::debug_handler]
@@ -165,13 +170,13 @@ pub async fn get_track_page(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!(track_id = track_id.as_str(), "track page request received");
-    if !is_discord_request(&headers) {
+    if is_browser_navigation(&headers) {
         tracing::info!(
             track_id = track_id.as_str(),
             "track page redirecting to spotify"
         );
         let redirect_url = format!("https://open.spotify.com/track/{track_id}");
-        state.analytics.spotify_redirect("track", "track_page");
+        state.analytics.link_clicked();
         return Ok(spotify_open_response(&redirect_url));
     }
 
@@ -210,7 +215,7 @@ pub async fn get_track_page(
         return Ok(AxumHtml(block).into_response());
     }
 
-    state
+    let generation = state
         .preview_generation
         .ensure_generated(PreloadedPreviewInput {
             track_id: spotify_data.media_id.clone(),
@@ -251,7 +256,7 @@ pub async fn get_track_page(
         &image_url,
     );
 
-    Ok(AxumHtml(block).into_response())
+    Ok(embed_page(block, generation))
 }
 
 #[axum::debug_handler]
@@ -265,13 +270,13 @@ pub async fn get_episode_page(
         episode_id = episode_id.as_str(),
         "episode page request received"
     );
-    if !is_discord_request(&headers) {
+    if is_browser_navigation(&headers) {
         tracing::info!(
             episode_id = episode_id.as_str(),
             "episode page redirecting to spotify"
         );
         let redirect_url = format!("https://open.spotify.com/episode/{episode_id}");
-        state.analytics.spotify_redirect("episode", "episode_page");
+        state.analytics.link_clicked();
         return Ok(spotify_open_response(&redirect_url));
     }
 
@@ -287,7 +292,7 @@ pub async fn get_episode_page(
         .await
         .map_err(map_preview_error)?;
 
-    state
+    let generation = state
         .preview_generation
         .ensure_generated(PreloadedPreviewInput {
             track_id: spotify_data.media_id.clone(),
@@ -338,19 +343,23 @@ pub async fn get_episode_page(
         &image_url,
     );
 
-    Ok(AxumHtml(block).into_response())
+    Ok(embed_page(block, generation))
 }
 
 #[axum::debug_handler]
-pub async fn get_fallback_redirect(State(state): State<AppState>, uri: Uri) -> impl IntoResponse {
+pub async fn get_fallback_redirect(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     tracing::info!(
         path = uri.path(),
         query = uri.query().unwrap_or(""),
         "fallback redirect requested"
     );
-    state
-        .analytics
-        .spotify_redirect(fallback_media_type(&uri), "fallback");
+    if is_browser_navigation(&headers) {
+        state.analytics.link_clicked();
+    }
     spotify_open_response(&build_passthrough_redirect(
         &uri,
         "",
@@ -453,7 +462,7 @@ pub async fn get_preview_video(
         cache_status = cache_status_label(&served.cache_status),
         "preview served"
     );
-    Ok(build_video_response(served.video_bytes, served.mime))
+    Ok(build_video_response(served))
 }
 
 #[axum::debug_handler]
@@ -498,7 +507,7 @@ async fn get_preview_collection_video(
         .await
         .map_err(map_preview_error)?;
 
-    let collection_video_id = ensure_collection_video(
+    let (collection_video_id, generation) = ensure_collection_video(
         &state,
         collection_kind,
         &collection_id,
@@ -513,7 +522,10 @@ async fn get_preview_collection_video(
         .await
         .map_err(map_preview_error)?;
 
-    Ok(build_video_response(served.video_bytes, served.mime))
+    Ok(build_video_response(ServedPreview {
+        cache_status: generation,
+        ..served
+    }))
 }
 
 fn cache_status_label(cache_status: &CacheStatus) -> &'static str {
@@ -524,11 +536,17 @@ fn cache_status_label(cache_status: &CacheStatus) -> &'static str {
     }
 }
 
-fn build_video_response(video_bytes: Bytes, mime: &str) -> Response {
+fn build_video_response(served: ServedPreview) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
-    headers.insert(header::CONTENT_TYPE, mime.parse().unwrap());
-    (StatusCode::OK, headers, video_bytes).into_response()
+    headers.insert(header::CONTENT_TYPE, served.mime.parse().unwrap());
+
+    let mut response = (StatusCode::OK, headers, served.video_bytes).into_response();
+    response
+        .extensions_mut()
+        .insert((served.video_kind, served.cache_status));
+
+    response
 }
 
 pub fn build_passthrough_redirect(uri: &Uri, route_prefix: &str, target_base: &str) -> String {
@@ -580,15 +598,57 @@ fn spotify_app_uri(web_url: &str) -> Option<String> {
     Some(format!("spotify:{kind}:{id}"))
 }
 
-fn is_discord_request(headers: &HeaderMap) -> bool {
-    headers
-        .get(header::USER_AGENT)
-        .and_then(|value| value.to_str().ok())
-        .map(|ua| ua.to_ascii_lowercase().contains("discord"))
-        .unwrap_or(false)
+pub async fn track_embed_request(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_browser_navigation(request.headers()) {
+        return next.run(request).await;
+    }
+
+    let media_type = media_type(request.uri()).to_string();
+    let user_agent = header_str(request.headers(), header::USER_AGENT).to_string();
+    let host = header_str(request.headers(), header::HOST).to_string();
+    let started_at = Instant::now();
+    let response = next.run(request).await;
+
+    state.analytics.embed_requested(
+        &media_type,
+        &user_agent,
+        &host,
+        response.extensions().get::<CacheStatus>(),
+        response.status(),
+        started_at.elapsed().as_millis() as u64,
+    );
+
+    response
 }
 
-fn fallback_media_type(uri: &Uri) -> &str {
+pub async fn track_video_request(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let started_at = Instant::now();
+    let response = next.run(request).await;
+
+    state.analytics.video_requested(
+        response.extensions().get::<(VideoKind, CacheStatus)>(),
+        response.status(),
+        started_at.elapsed().as_millis() as u64,
+    );
+
+    response
+}
+
+fn embed_page(block: String, generation: CacheStatus) -> Response {
+    let mut response = AxumHtml(block).into_response();
+    response.extensions_mut().insert(generation);
+    response
+}
+
+fn media_type(uri: &Uri) -> &str {
     uri.path()
         .trim_start_matches('/')
         .split('/')
@@ -611,7 +671,7 @@ async fn ensure_collection_video(
     collection_id: &str,
     collection_data: &SpotifyCollectionTrackMetadata,
     og_bytes: Bytes,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<(String, CacheStatus), (StatusCode, String)> {
     let collection_video_id = build_collection_video_id(
         collection_kind,
         collection_id,
@@ -641,7 +701,7 @@ async fn ensure_collection_video(
             .await;
     }
 
-    Ok(collection_video_id)
+    Ok((collection_video_id, generation))
 }
 
 fn build_collection_video_id(
@@ -887,8 +947,8 @@ mod tests {
     use super::{
         ComponentEmbedDetails, append_query, build_collection_video_id, build_component_embed_json,
         build_component_subtitle, build_passthrough_redirect, build_preview_meta_page,
-        collection_video_id_prefix, collection_video_variant_suffix, fallback_media_type,
-        spotify_app_uri, spotify_collection_url,
+        collection_video_id_prefix, collection_video_variant_suffix, media_type, spotify_app_uri,
+        spotify_collection_url,
     };
     use crate::embeds::VideoKind;
     use crate::embeds::spotify_metadata::{SpotifyCollectionKind, SpotifyPreviewMetadata};
@@ -948,13 +1008,13 @@ mod tests {
     }
 
     #[test]
-    fn fallback_redirect_classifies_known_spotify_media_types() {
+    fn paths_are_classified_by_known_spotify_media_types() {
         assert_eq!(
-            fallback_media_type(&"/album/abc123".parse::<Uri>().unwrap()),
+            media_type(&"/album/abc123".parse::<Uri>().unwrap()),
             "album"
         );
         assert_eq!(
-            fallback_media_type(&"/artist/abc123".parse::<Uri>().unwrap()),
+            media_type(&"/artist/abc123".parse::<Uri>().unwrap()),
             "other"
         );
     }

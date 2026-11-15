@@ -24,3 +24,4 @@ aes-gcm = "0.10"
 subtle = "2"
 base64 = "0.22"
 getrandom = { version = "0.2", features = ["js"] }
+common = { path = "../../packages/common" }

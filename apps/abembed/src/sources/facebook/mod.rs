@@ -3,10 +3,10 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_gateway, bad_request, get_cached,
+    bad_gateway, bad_request, browser_redirect, get_cached,
     html::{icon, Site},
-    log, post_cache, put_cached, redirect, redirects_browser, warn, ComponentQuery, EmbedPost,
-    HttpError, ProviderResponse, Providers, Source, REGIONS,
+    post_cache, put_cached, redirects_browser, warn, ComponentQuery, EmbedPost, HttpError,
+    ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
@@ -96,7 +96,9 @@ async fn media(
     let source = FacebookSource::new(path, uri.query())?;
     if source.path.starts_with("share/") && redirects_browser(&env, &headers) {
         let url = source.shared_url(&env).await;
-        return Ok(redirect(&url.unwrap_or_else(|_| source.source_url())));
+        return Ok(browser_redirect::<FacebookSource>(
+            &url.unwrap_or_else(|_| source.source_url()),
+        ));
     }
     super::embed(&env, &source, &headers).await
 }
@@ -329,6 +331,13 @@ impl Source for FacebookSource {
         &self.id
     }
 
+    fn link_kind(&self) -> &'static str {
+        match self.path.starts_with("share/") {
+            true => "share",
+            false => "canonical",
+        }
+    }
+
     fn cache_key(&self) -> String {
         format!("embed:v2:facebook:{}{}", self.path, self.query_string())
     }
@@ -355,6 +364,7 @@ impl Source for FacebookSource {
         if self.path.starts_with("stories/") {
             return resolve_with_account(env, self, providers)
                 .await
+                .inspect(|_| providers.account_resolved(Self::PLATFORM, &self.id))
                 .ok_or_else(|| bad_gateway("Facebook story needs an account"));
         }
 
@@ -364,13 +374,12 @@ impl Source for FacebookSource {
                 self.embed_from_html(&page.body)
             })
             .await;
+
         let embed = match anonymous {
             Ok(embed) => embed,
             Err(error) => match resolve_with_account(env, self, providers).await {
                 Some(embed) => {
-                    log(
-                        &json!({ "event": "account_resolved", "platform": "facebook", "id": self.id }),
-                    );
+                    providers.account_resolved(Self::PLATFORM, &self.id);
                     embed
                 }
                 None => return Err(error),

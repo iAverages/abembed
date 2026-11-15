@@ -18,6 +18,7 @@ use crate::embeds::video_source::{B2VideoSource, VideoSourceError};
 pub struct ServedPreview {
     pub video_bytes: Bytes,
     pub mime: &'static str,
+    pub video_kind: VideoKind,
     pub cache_status: CacheStatus,
 }
 
@@ -96,24 +97,20 @@ impl PreviewGeneration {
 
         if let Some((bytes, video_kind)) = self.cache.get_video_bytes(&track_id).await {
             tracing::debug!(track_id = track_id.as_str(), "preview video cache hit");
-            self.analytics
-                .video_cache_hit(&track_id, video_kind, bytes.len());
-            self.analytics
-                .video_served(&track_id, video_kind, bytes.len(), "memory");
             return Ok(ServedPreview {
                 video_bytes: bytes,
                 mime: "video/mp4",
+                video_kind,
                 cache_status: CacheStatus::Hit,
             });
         }
 
         if let Some((bytes, video_kind)) = self.hydrate_from_source(&track_id, None).await? {
             tracing::debug!(track_id = track_id.as_str(), "preview hydrated from source");
-            self.analytics
-                .video_served(&track_id, video_kind, bytes.len(), "source");
             return Ok(ServedPreview {
                 video_bytes: bytes,
                 mime: "video/mp4",
+                video_kind,
                 cache_status: CacheStatus::Hydrated,
             });
         }
@@ -161,12 +158,10 @@ impl PreviewGeneration {
             "rendered preview available in cache"
         );
 
-        self.analytics
-            .video_served(&track_id, video_kind, bytes.len(), "rendered");
-
         Ok(ServedPreview {
             video_bytes: bytes,
             mime: "video/mp4",
+            video_kind,
             cache_status: CacheStatus::Rendered,
         })
     }
@@ -240,6 +235,7 @@ impl PreviewGeneration {
 
         tracing::debug!(track_id = track_id.as_str(), "leading generation task");
 
+        let started_at = Instant::now();
         let result = self
             .render_and_cache(PreloadedPreviewInput {
                 track_id: track_id.clone(),
@@ -249,13 +245,19 @@ impl PreviewGeneration {
             })
             .await;
 
+        self.analytics.video_rendered(
+            input.video_kind,
+            result.as_ref().ok().copied(),
+            started_at.elapsed().as_millis() as u64,
+        );
+
         let mut tasks = self.generation_tasks.lock().await;
         if let Some(notify) = tasks.remove(&track_id) {
             notify.notify_waiters();
         }
         drop(tasks);
 
-        result.map(|()| CacheStatus::Rendered)
+        result.map(|_| CacheStatus::Rendered)
     }
 
     pub async fn invalidate_stale_variants(&self, video_id_prefix: &str, keep_suffix: &str) {
@@ -295,41 +297,23 @@ impl PreviewGeneration {
     async fn render_and_cache(
         &self,
         input: PreloadedPreviewInput,
-    ) -> Result<(), PreviewGenerationError> {
-        let started_at = Instant::now();
+    ) -> Result<usize, PreviewGenerationError> {
         let track_id = input.track_id.clone();
         tracing::info!(track_id = track_id.as_str(), "rendering preview video");
 
-        let rendered_bytes = match self
+        let rendered_bytes = self
             .renderer
             .render_preview_video(RenderInput {
                 track_id: track_id.clone(),
                 preview_url: input.preview_url,
                 track_og_bytes: input.og_bytes,
             })
-            .await
-        {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                self.analytics.video_generation_failed(
-                    &track_id,
-                    input.video_kind,
-                    elapsed_millis(started_at.elapsed()),
-                );
-                return Err(error.into());
-            }
-        };
+            .await?;
 
-        self.analytics.video_generated(
-            &track_id,
-            input.video_kind,
-            rendered_bytes.len(),
-            elapsed_millis(started_at.elapsed()),
-        );
-
+        let size_bytes = rendered_bytes.len();
         tracing::debug!(
             track_id = track_id.as_str(),
-            video_size_bytes = rendered_bytes.len(),
+            video_size_bytes = size_bytes,
             "preview render complete"
         );
 
@@ -360,7 +344,7 @@ impl PreviewGeneration {
             );
         });
 
-        Ok(())
+        Ok(size_bytes)
     }
 
     async fn hydrate_from_source(
@@ -381,8 +365,6 @@ impl PreviewGeneration {
                             .video_kind
                     }
                 };
-                self.analytics
-                    .video_source_hit(track_id, video_kind, bytes.len());
                 self.cache
                     .cache_video_bytes(track_id.to_string(), bytes.clone(), video_kind)
                     .await;
@@ -398,10 +380,6 @@ impl PreviewGeneration {
             }
         }
     }
-}
-
-fn elapsed_millis(duration: std::time::Duration) -> u64 {
-    duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 pub fn normalize_track_id(raw_track_id: &str) -> Result<String, PreviewGenerationError> {

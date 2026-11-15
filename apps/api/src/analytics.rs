@@ -1,7 +1,12 @@
+use axum::http::StatusCode;
+use common::{EventName, consumer};
 use posthog_rs::{Client, Event};
-use serde::Serialize;
+use serde_json::{Value, json};
 
 use crate::embeds::VideoKind;
+use crate::embeds::preview_generation::CacheStatus;
+
+const PLATFORM: &str = "spotify";
 
 pub struct Analytics {
     client: Client,
@@ -20,36 +25,51 @@ impl Analytics {
         Self { client }
     }
 
-    pub fn spotify_redirect(&self, media_type: &str, route: &str) {
-        let mut event = Event::new_anon("spotify redirect");
-        insert_property(&mut event, "media_type", media_type);
-        insert_property(&mut event, "route", route);
-        self.client.capture(event);
+    pub fn link_clicked(&self) {
+        self.capture(EventName::LinkClicked, json!({ "platform": PLATFORM }));
     }
 
-    pub fn video_generated(
+    pub fn embed_requested(
         &self,
-        video_id: &str,
-        video_kind: VideoKind,
-        size_bytes: usize,
+        media_type: &str,
+        user_agent: &str,
+        host: &str,
+        cache: Option<&CacheStatus>,
+        status: StatusCode,
         duration_ms: u64,
     ) {
-        let mut event = self.video_event("video generated", video_id, video_kind);
-        insert_property(&mut event, "size_bytes", size_bytes);
-        insert_property(&mut event, "duration_ms", duration_ms);
-        self.client.capture(event);
+        self.capture(
+            EventName::EmbedRequested,
+            embed_properties(media_type, user_agent, host, cache, status, duration_ms),
+        );
     }
 
-    pub fn video_generation_failed(&self, video_id: &str, video_kind: VideoKind, duration_ms: u64) {
-        let mut event = self.video_event("video generation failed", video_id, video_kind);
-        insert_property(&mut event, "duration_ms", duration_ms);
-        insert_property(&mut event, "failure_stage", "render");
-        self.client.capture(event);
+    pub fn video_rendered(&self, kind: VideoKind, size_bytes: Option<usize>, duration_ms: u64) {
+        self.capture(
+            EventName::VideoRendered,
+            render_properties(kind, size_bytes, duration_ms),
+        );
     }
 
-    pub fn video_cache_hit(&self, video_id: &str, video_kind: VideoKind, size_bytes: usize) {
-        let mut event = self.video_event("video cache hit", video_id, video_kind);
-        insert_property(&mut event, "size_bytes", size_bytes);
+    pub fn video_requested(
+        &self,
+        served: Option<&(VideoKind, CacheStatus)>,
+        status: StatusCode,
+        duration_ms: u64,
+    ) {
+        self.capture(
+            EventName::VideoRequested,
+            video_properties(served, status, duration_ms),
+        );
+    }
+
+    fn capture(&self, name: EventName, properties: Value) {
+        let mut event = Event::new_anon(name.as_str());
+        for (key, value) in properties.as_object().into_iter().flatten() {
+            if let Err(error) = event.insert_prop(key, value) {
+                tracing::warn!(property = key, %error, "failed to add PostHog event property");
+            }
+        }
         self.client.capture(event);
     }
 
@@ -61,13 +81,16 @@ impl Analytics {
         incoming_size_bytes: u64,
         replaced_existing: bool,
     ) {
-        let mut event = Event::new_anon("video cache updated");
-        insert_property(&mut event, "current_size_bytes", current_size_bytes);
-        insert_property(&mut event, "max_size_bytes", max_size_bytes);
-        insert_property(&mut event, "entry_count", entry_count);
-        insert_property(&mut event, "incoming_size_bytes", incoming_size_bytes);
-        insert_property(&mut event, "replaced_existing", replaced_existing);
-        self.client.capture(event);
+        self.capture(
+            EventName::VideoCacheUpdated,
+            json!({
+                "current_size_bytes": current_size_bytes,
+                "max_size_bytes": max_size_bytes,
+                "entry_count": entry_count,
+                "incoming_size_bytes": incoming_size_bytes,
+                "replaced_existing": replaced_existing,
+            }),
+        );
     }
 
     pub fn video_cache_evicted(
@@ -77,12 +100,15 @@ impl Analytics {
         max_size_bytes: u64,
         entry_count: usize,
     ) {
-        let mut event = Event::new_anon("video cache evicted");
-        insert_property(&mut event, "eviction_count", eviction_count);
-        insert_property(&mut event, "current_size_bytes", current_size_bytes);
-        insert_property(&mut event, "max_size_bytes", max_size_bytes);
-        insert_property(&mut event, "entry_count", entry_count);
-        self.client.capture(event);
+        self.capture(
+            EventName::VideoCacheEvicted,
+            json!({
+                "eviction_count": eviction_count,
+                "current_size_bytes": current_size_bytes,
+                "max_size_bytes": max_size_bytes,
+                "entry_count": entry_count,
+            }),
+        );
     }
 
     pub fn video_cache_write_skipped(
@@ -91,46 +117,102 @@ impl Analytics {
         incoming_size_bytes: u64,
         max_size_bytes: u64,
     ) {
-        let mut event = Event::new_anon("video cache write skipped");
-        insert_property(&mut event, "reason", reason);
-        insert_property(&mut event, "incoming_size_bytes", incoming_size_bytes);
-        insert_property(&mut event, "max_size_bytes", max_size_bytes);
-        self.client.capture(event);
-    }
-
-    pub fn video_source_hit(&self, video_id: &str, video_kind: VideoKind, size_bytes: usize) {
-        let mut event = self.video_event("video source hit", video_id, video_kind);
-        insert_property(&mut event, "size_bytes", size_bytes);
-        self.client.capture(event);
-    }
-
-    pub fn video_served(
-        &self,
-        video_id: &str,
-        video_kind: VideoKind,
-        size_bytes: usize,
-        cache_status: &str,
-    ) {
-        let mut event = self.video_event("video served", video_id, video_kind);
-        insert_property(&mut event, "size_bytes", size_bytes);
-        insert_property(&mut event, "cache_status", cache_status);
-        self.client.capture(event);
+        self.capture(
+            EventName::VideoCacheWriteSkipped,
+            json!({
+                "reason": reason,
+                "incoming_size_bytes": incoming_size_bytes,
+                "max_size_bytes": max_size_bytes,
+            }),
+        );
     }
 
     pub async fn shutdown(&self) {
         self.client.shutdown().await;
     }
+}
 
-    fn video_event(&self, event_name: &str, video_id: &str, video_kind: VideoKind) -> Event {
-        let mut event = Event::new_anon(event_name);
-        insert_property(&mut event, "video_id", video_id);
-        insert_property(&mut event, "video_kind", video_kind.as_str());
-        event
+fn embed_properties(
+    media_type: &str,
+    user_agent: &str,
+    host: &str,
+    cache: Option<&CacheStatus>,
+    status: StatusCode,
+    duration_ms: u64,
+) -> Value {
+    let failed = status.is_client_error() || status.is_server_error();
+    let mut properties = json!({
+        "platform": PLATFORM,
+        "endpoint": "embed",
+        "consumer": consumer(user_agent),
+        "link_kind": "canonical",
+        "media_type": media_type,
+        "host": host,
+        "status": status.as_u16(),
+        "outcome": outcome(failed),
+        "duration_ms": duration_ms,
+    });
+
+    if let Some(cache) = cache {
+        properties["cache"] = match cache {
+            CacheStatus::Rendered => "miss",
+            CacheStatus::Hit | CacheStatus::Hydrated => "hit",
+        }
+        .into();
+    }
+
+    if !failed {
+        properties["media_count"] = 1.into();
+        properties["media_kinds"] = json!(["video"]);
+        properties["video_source"] = video_source(cache).into();
+    }
+
+    properties
+}
+
+fn video_source(cache: Option<&CacheStatus>) -> &'static str {
+    match cache {
+        Some(CacheStatus::Rendered) => "rendered",
+        Some(CacheStatus::Hit) => "memory",
+        Some(CacheStatus::Hydrated) => "storage",
+        // native is a link directly from spotify, such as music video previews
+        None => "native",
     }
 }
 
-fn insert_property<T: Serialize>(event: &mut Event, key: &str, value: T) {
-    if let Err(error) = event.insert_prop(key, value) {
-        tracing::warn!(property = key, %error, "failed to add PostHog event property");
+fn outcome(failed: bool) -> &'static str {
+    if failed { "error" } else { "ok" }
+}
+
+fn render_properties(kind: VideoKind, size_bytes: Option<usize>, duration_ms: u64) -> Value {
+    let mut properties = json!({
+        "media_type": kind.as_str(),
+        "outcome": outcome(size_bytes.is_none()),
+        "duration_ms": duration_ms,
+    });
+
+    if let Some(size_bytes) = size_bytes {
+        properties["size_bytes"] = size_bytes.into();
     }
+
+    properties
+}
+
+fn video_properties(
+    served: Option<&(VideoKind, CacheStatus)>,
+    status: StatusCode,
+    duration_ms: u64,
+) -> Value {
+    let mut properties = json!({
+        "status": status.as_u16(),
+        "outcome": outcome(served.is_none()),
+        "duration_ms": duration_ms,
+    });
+
+    if let Some((kind, cache)) = served {
+        properties["media_type"] = kind.as_str().into();
+        properties["video_source"] = video_source(Some(cache)).into();
+    }
+
+    properties
 }

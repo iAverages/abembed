@@ -6,8 +6,8 @@ mod translate;
 use super::{
     bad_gateway, bad_request,
     html::{icon, Site},
-    json_response, load_post, log, media_base, media_file, post_json, warn, ComponentQuery,
-    EmbedPost, HttpError, Media, ProviderResponse, Providers, Source, REGIONS,
+    json_response, load_post, media_base, media_file, post_json, warn, ComponentQuery, EmbedPost,
+    HttpError, Media, ProviderResponse, Providers, Source, REGIONS,
 };
 use crate::accounts::{with_account, AccountFields, Attempt};
 use axum::{
@@ -431,9 +431,7 @@ impl Source for TwitterSource {
             // syndication hides gated statuses, an account still sees them
             Err(error) => match self.account_post(env, providers).await {
                 Some(mut post) => {
-                    log(
-                        &json!({ "event": "account_resolved", "platform": "twitter", "id": self.id }),
-                    );
+                    providers.account_resolved(Self::PLATFORM, &self.id);
                     let quote = post.quote.take().map(|quote| *quote);
                     (post, None, quote)
                 }
