@@ -367,8 +367,15 @@ fn normalize_collection_metadata(
     root: CollectionRoot,
 ) -> Result<SpotifyCollectionTrackMetadata> {
     let entity = root.props.page_props.state.data.entity;
-    let track_index = resolve_requested_track_index(raw_track, entity.track_list.len())
+    let track_count = entity.track_list.len();
+    let requested_index = resolve_requested_track_index(raw_track, track_count)
         .ok_or_else(|| anyhow!("missing tracks"))?;
+
+    // deleted and region locked tracks have no preview, so play the next track that does
+    let (track_index, preview_url) = (requested_index..requested_index + track_count)
+        .map(|index| index % track_count)
+        .find_map(|index| Some((index, entity.track_list[index].preview_url()?.to_string())))
+        .ok_or_else(|| anyhow!("missing preview url"))?;
 
     let artwork_url = entity
         .visual_identity
@@ -414,11 +421,6 @@ fn normalize_collection_metadata(
         .collect::<Vec<_>>();
     if artist_names.is_empty() {
         return Err(anyhow!("missing artist names"));
-    }
-
-    let preview_url = track.audio_preview.url.trim().to_string();
-    if preview_url.is_empty() {
-        return Err(anyhow!("missing preview url"));
     }
 
     let track_metadata = SpotifyPreviewMetadata {
@@ -468,7 +470,7 @@ fn collection_content_fingerprint(entity: &CollectionEntity, artwork_url: &str) 
             &mut hasher,
             &track.duration.map(|d| d.to_string()).unwrap_or_default(),
         );
-        feed(&mut hasher, &track.audio_preview.url);
+        feed(&mut hasher, track.preview_url().unwrap_or_default());
     }
 
     let mut digest = hex::encode(hasher.finalize());
@@ -776,8 +778,15 @@ struct CollectionTrack {
     uri: String,
     title: String,
     subtitle: String,
-    audio_preview: TrackAudioPreview,
+    audio_preview: Option<TrackAudioPreview>,
     duration: Option<i64>,
+}
+
+impl CollectionTrack {
+    fn preview_url(&self) -> Option<&str> {
+        let url = self.audio_preview.as_ref()?.url.trim();
+        (!url.is_empty()).then_some(url)
+    }
 }
 
 #[derive(Deserialize)]
