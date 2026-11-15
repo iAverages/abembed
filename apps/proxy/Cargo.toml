@@ -6,6 +6,7 @@ license = "MIT"
 
 [lib]
 crate-type = ["cdylib"]
+path = "src/lib.rs"
 
 [dependencies]
 web-sys = { version = "0.3", features = ["WritableStreamDefaultWriter"] }

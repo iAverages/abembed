@@ -88,6 +88,17 @@
       # these extensions are not in cranes default fitler
       extraSrcExtensions = ["mp4" "json" "html"];
 
+      srcFor = app:
+        lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ./apps)
+            (lib.fileset.intersection (lib.fileset.fromSource src) ./apps/${app})
+          ];
+        };
+
       wasmBindgenCli = pkgs.buildWasmBindgenCli rec {
         src = pkgs.fetchCrate {
           pname = "wasm-bindgen-cli";
@@ -126,7 +137,7 @@
       in
         devCraneLib.mkCargoDerivation (workerArgs
           // {
-            version = gitTag;
+            src = srcFor app;
             inherit cargoArtifacts;
             doInstallCargoArtifacts = false;
             nativeBuildInputs = workerArgs.nativeBuildInputs ++ [workerBuild];
@@ -154,9 +165,10 @@
 
       cargoArtifacts = craneLib.buildDepsOnly commonRustArgs;
 
-      individualCrateArgs =
+      individualCrateArgs = app:
         commonRustArgs
         // {
+          src = srcFor app;
           inherit cargoArtifacts;
           inherit (craneLib.crateNameFromCargoToml {inherit src;}) version;
           # we disable tests since we'll run them all via cargo-nextest
@@ -164,20 +176,23 @@
         };
 
       apiPackages = import ./apps/api/nix/packages.nix {
-        inherit pkgs craneLib individualCrateArgs gitTag;
+        inherit pkgs craneLib gitTag;
+        individualCrateArgs = individualCrateArgs "api";
       };
 
       inherit (apiPackages) api apiDockerImage;
 
       gifServicePackages = import ./apps/gif-service/nix/packages.nix {
-        inherit pkgs craneLib individualCrateArgs gitTag;
+        inherit pkgs craneLib gitTag;
+        individualCrateArgs = individualCrateArgs "gif-service";
       };
 
       inherit (gifServicePackages) gifService gifServiceDockerImage;
 
       inherit
         (import ./apps/hosted-provider/nix/packages.nix {
-          inherit craneLib individualCrateArgs;
+          inherit craneLib;
+          individualCrateArgs = individualCrateArgs "hosted-provider";
         })
         hostedProvider
         ;
