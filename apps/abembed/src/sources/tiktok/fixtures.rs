@@ -60,6 +60,23 @@ fn video_page_with_audio(audio: Value) -> String {
     )
 }
 
+pub fn photo_page() -> String {
+    script(
+        "__UNIVERSAL_DATA_FOR_REHYDRATION__",
+        json!({ "__DEFAULT_SCOPE__": { "webapp.video-detail": { "itemInfo": { "itemStruct": {
+            "id": PHOTO_ID,
+            "desc": "Photo description",
+            "createTime": "1785108000",
+            "author": { "uniqueId": USERNAME, "nickname": "Photo Author", "avatarThumb": AVATAR_URL },
+            "stats": { "diggCount": 31, "shareCount": 6, "commentCount": 9 },
+            "imagePost": { "images": [
+                { "imageURL": { "urlList": [IMAGE_ONE] }, "imageWidth": 814, "imageHeight": 376 },
+                { "imageURL": { "urlList": [IMAGE_TWO] }, "imageWidth": 640, "imageHeight": 640 },
+            ] },
+        } } } } }),
+    )
+}
+
 pub fn embed_page(id: &str, video_data: Value) -> String {
     script(
         "__FRONTITY_CONNECT_STATE__",

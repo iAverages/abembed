@@ -3,7 +3,7 @@
 use super::{TikTokSource, APP_PLAY_HOST};
 use crate::sources::{bad_gateway, Author, EmbedPost, HttpError, Media, MediaKind, Source, Stats};
 use scraper::{Html, Selector};
-use serde_json::Value;
+use serde_json::{json, Value};
 use worker::Url;
 
 // fixes the mp4 timing tiktok cdn files get wrong, see apps/proxy
@@ -15,16 +15,7 @@ impl TikTokSource {
         &self,
         html: &str,
     ) -> Result<(EmbedPost, Option<String>), HttpError> {
-        let item = script_json(html, "__UNIVERSAL_DATA_FOR_REHYDRATION__")
-            .and_then(|json| {
-                json.pointer("/__DEFAULT_SCOPE__/webapp.video-detail/itemInfo/itemStruct")
-                    .cloned()
-            })
-            .ok_or_else(|| bad_gateway("TikTok page did not include video data"))?;
-        if item["id"].as_str() != Some(self.id.as_str()) {
-            return Err(bad_gateway("TikTok page returned a different video"));
-        }
-
+        let item = self.page_item(html)?;
         let video = &item["video"];
         let mut bitrates: Vec<&Value> = video["bitrateInfo"]
             .as_array()
@@ -62,21 +53,52 @@ impl TikTokSource {
                 Some((url, None))
             })
             .ok_or_else(|| bad_gateway("TikTok page did not include a direct video URL"))?;
+        let embed = self.embed_from_item(&item, vec![new_media(MediaKind::Video, url, video)]);
+
+        Ok((embed, audio))
+    }
+
+    pub(super) fn photo_from_page(&self, html: &str) -> Result<EmbedPost, HttpError> {
+        let item = self.page_item(html)?;
+        let images: Vec<Media> = item["imagePost"]["images"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|image| {
+                let url = urls(&image["imageURL"]).into_iter().find_map(cdn_url)?;
+                let meta = json!({ "width": image["imageWidth"], "height": image["imageHeight"] });
+                Some(new_media(MediaKind::Image, url, &meta))
+            })
+            .collect();
+        if images.is_empty() {
+            return Err(bad_gateway("TikTok page did not include a photo URL"));
+        }
+
+        Ok(self.embed_from_item(&item, images))
+    }
+
+    fn page_item(&self, html: &str) -> Result<Value, HttpError> {
+        let item = script_json(html, "__UNIVERSAL_DATA_FOR_REHYDRATION__")
+            .and_then(|json| {
+                json.pointer("/__DEFAULT_SCOPE__/webapp.video-detail/itemInfo/itemStruct")
+                    .cloned()
+            })
+            .ok_or_else(|| bad_gateway("TikTok page did not include video data"))?;
+        if item["id"].as_str() != Some(self.id.as_str()) {
+            return Err(bad_gateway("TikTok page returned a different video"));
+        }
+        Ok(item)
+    }
+
+    fn embed_from_item(&self, item: &Value, media: Vec<Media>) -> EmbedPost {
         let stats = if item["stats"].is_object() {
             &item["stats"]
         } else {
             &item["statsV2"]
         };
-
-        let mut embed = self.embed(
-            &item["desc"],
-            &item["author"],
-            stats,
-            vec![new_media(MediaKind::Video, url, video)],
-        );
+        let mut embed = self.embed(&item["desc"], &item["author"], stats, media);
         embed.created_at = count(&item["createTime"]).or(embed.created_at);
-
-        Ok((embed, audio))
+        embed
     }
 
     pub(super) fn video_from_embed(&self, html: &str) -> Result<EmbedPost, HttpError> {
@@ -283,7 +305,6 @@ mod tests {
     use super::super::fixtures::*;
     use super::*;
     use axum::http::StatusCode;
-    use serde_json::json;
     use std::collections::BTreeMap;
 
     #[test]
@@ -353,6 +374,30 @@ mod tests {
     fn rejects_video_page_without_hydration() {
         assert!(source("video", VIDEO_ID)
             .video_from_page("<!doctype html><html></html>")
+            .is_err());
+    }
+
+    #[test]
+    fn extracts_all_photo_images_from_video_page() {
+        let embed = source("photo", PHOTO_ID)
+            .photo_from_page(&photo_page())
+            .unwrap();
+        let urls: Vec<&str> = embed.media.iter().map(|media| media.url.as_str()).collect();
+
+        assert_eq!(urls, [IMAGE_ONE, IMAGE_TWO]);
+        assert_eq!(
+            (embed.media[0].width, embed.media[0].height),
+            (Some(814), Some(376))
+        );
+        assert_eq!(embed.description.as_deref(), Some("Photo description"));
+        assert_eq!(embed.created_at, Some(1_785_108_000));
+        assert_eq!(embed.stats.unwrap().likes, Some(31));
+    }
+
+    #[test]
+    fn rejects_video_page_without_photos() {
+        assert!(source("video", VIDEO_ID)
+            .photo_from_page(&video_page())
             .is_err());
     }
 

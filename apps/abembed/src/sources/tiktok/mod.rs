@@ -304,32 +304,40 @@ impl Source for TikTokSource {
     }
 
     async fn fetch(&self, _env: &Env, providers: &Providers) -> Result<EmbedPost, HttpError> {
-        let embed_page_url = self.embed_page_url();
-        match self.post_type {
-            "photo" => {
+        let photo = self.post_type == "photo";
+        let page = if photo {
+            // the photo path has no hydration, the video path serves photo posts too
+            let page_url = format!(
+                "https://www.tiktok.com/@{}/video/{}",
+                self.username, self.id
+            );
+            providers
+                .fetch(&page_url, &HTML_HEADERS, |html| self.photo_from_page(html))
+                .await
+        } else {
+            self.resolve_video_page(providers).await
+        };
+
+        match page {
+            Ok(embed) => Ok(embed),
+            Err(HttpError(_, message)) => {
+                warn(&json!({
+                    "event": "page",
+                    "platform": "tiktok",
+                    "id": self.id,
+                    "error": message,
+                    "fallback": "embed",
+                }));
                 providers
-                    .fetch(&embed_page_url, &HTML_HEADERS, |html| {
-                        self.photo_from_embed(html)
+                    .fetch(&self.embed_page_url(), &HTML_HEADERS, |html| {
+                        if photo {
+                            self.photo_from_embed(html)
+                        } else {
+                            self.video_from_embed(html)
+                        }
                     })
                     .await
             }
-            _ => match self.resolve_video_page(providers).await {
-                Ok(embed) => Ok(embed),
-                Err(HttpError(_, message)) => {
-                    warn(&json!({
-                        "event": "page",
-                        "platform": "tiktok",
-                        "id": self.id,
-                        "error": message,
-                        "fallback": "embed",
-                    }));
-                    providers
-                        .fetch(&embed_page_url, &HTML_HEADERS, |html| {
-                            self.video_from_embed(html)
-                        })
-                        .await
-                }
-            },
         }
     }
 }
