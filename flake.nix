@@ -231,9 +231,13 @@
       };
 
       inherit (embedImageServicePackages) embedImageService embedImageServiceDockerImage;
+
+      manifests = import ./deploy/manifests.nix {inherit pkgs lib;};
     in {
       checks = {
         inherit api embedImageService gifService hostedProvider abembedWorker providerWorker proxyWorker;
+
+        manifests = pkgs.runCommand "build-manifests" {nativeBuildInputs = [pkgs.kustomize];} "kustomize build ${manifests} > $out";
 
         workspace-clippy = craneLib.cargoClippy (
           commonRustArgs
@@ -285,7 +289,7 @@
         };
 
       packages = {
-        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage hostedProvider abembedWorker providerWorker proxyWorker;
+        inherit api apiDockerImage embedImageService embedImageServiceDockerImage gifService gifServiceDockerImage hostedProvider abembedWorker providerWorker proxyWorker manifests;
       };
     })
     // {

@@ -132,7 +132,7 @@ jobs:
     with:
       environment: production
       nix_image_attr: apiDockerImage
-      deployment_name: spqtify.com/api
+      deployment_name: abembed/api
       argo_deployments_path: "helm/spqtify.com/values/production.yaml"
       version_key: apiVersion
     secrets: inherit
@@ -144,7 +144,7 @@ jobs:
     with:
       environment: production
       nix_image_attr: embedImageServiceDockerImage
-      deployment_name: spqtify.com/embed-image-service
+      deployment_name: abembed/embed-image-service
       argo_deployments_path: "helm/spqtify.com/values/production.yaml"
       version_key: embedImageServiceVersion
     secrets: inherit
@@ -160,3 +160,41 @@ jobs:
       argo_deployments_path: "helm/spqtify.com/values/production.yaml"
       version_key: gifServiceVersion
     secrets: inherit
+
+  manifests:
+    needs: [checks, api, embed-image-service, gif-service]
+    if: ${{ !cancelled() && github.ref_name == 'main' && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: Publish manifests to the deploy branch
+        env:
+          API: ${{ needs.api.result }}
+          EMBED_IMAGE_SERVICE: ${{ needs.embed-image-service.result }}
+          GIF_SERVICE: ${{ needs.gif-service.result }}
+        run: |
+          set -euo pipefail
+
+          tag="production-$GITHUB_SHA"
+          images=()
+          [ "$API" != success ] || images+=("ghcr.io/iaverages/abembed/api:$tag")
+          [ "$EMBED_IMAGE_SERVICE" != success ] || images+=("ghcr.io/iaverages/abembed/embed-image-service:$tag")
+          [ "$GIF_SERVICE" != success ] || images+=("ghcr.io/iaverages/abembed/gif-service:$tag")
+
+          manifests="$(nix build .#manifests --no-link --print-out-paths)"
+          kustomize="$(nix build --inputs-from . nixpkgs#kustomize --no-link --print-out-paths)/bin/kustomize"
+
+          git fetch --depth=1 origin deploy
+          git worktree add "$RUNNER_TEMP/deploy" FETCH_HEAD
+          cd "$RUNNER_TEMP/deploy"
+          rsync --recursive --delete --chmod=D755,F644 "$manifests/" base/
+          [ "${#images[@]}" -eq 0 ] || "$kustomize" edit set image "${images[@]}"
+
+          git add --all
+          git diff --cached --quiet && exit 0
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "deploy $GITHUB_SHA"
+          git push origin HEAD:deploy
