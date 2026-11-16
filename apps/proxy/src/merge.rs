@@ -102,12 +102,14 @@ pub async fn merge(
 }
 
 async fn read_input(allowed_hosts: &[String], url: &Url) -> Result<remux::Input, Error> {
-    let (mut head, total) = fetch_bytes(allowed_hosts, url, 0, HEAD_FETCH - 1).await?;
+    let (mut head, total) = fetch_bytes(allowed_hosts, url, None, 0, HEAD_FETCH - 1).await?;
     loop {
         match remux::read_head(&head).map_err(bad_gateway)? {
             Head::Found(input) => return Ok(*input),
             Head::NeedBytes(n) if n > head.len() && n as u64 <= total.min(MAX_HEAD) => {
-                head = fetch_bytes(allowed_hosts, url, 0, n as u64 - 1).await?.0;
+                head = fetch_bytes(allowed_hosts, url, None, 0, n as u64 - 1)
+                    .await?
+                    .0;
             }
             Head::NeedBytes(_) => {
                 return Err(bad_gateway(format!(
@@ -139,6 +141,7 @@ impl Sources {
         let (mut data, _) = fetch_bytes(
             &self.allowed_hosts,
             url,
+            None,
             chunk.source,
             chunk.source + chunk.size - 1,
         )

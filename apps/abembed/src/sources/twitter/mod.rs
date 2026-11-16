@@ -271,8 +271,8 @@ impl TwitterSource {
         providers: &Providers,
     ) -> Result<(EmbedPost, Option<EmbedPost>, Option<EmbedPost>), HttpError> {
         let tweet = providers
-            .fetch(&syndication_url(&self.id), &JSON_HEADERS, |body| {
-                self.tweet_json(body)
+            .fetch(&syndication_url(&self.id), &JSON_HEADERS, |response| {
+                self.tweet_json(&response.body)
             })
             .await?;
         if tweet["__typename"] != "Tweet" {

@@ -60,6 +60,16 @@ fn video_page_with_audio(audio: Value) -> String {
     )
 }
 
+pub fn video_page_without_bitrates() -> String {
+    script(
+        "__UNIVERSAL_DATA_FOR_REHYDRATION__",
+        json!({ "__DEFAULT_SCOPE__": { "webapp.video-detail": { "itemInfo": { "itemStruct": {
+            "id": VIDEO_ID,
+            "video": { "width": 2160, "height": 3840, "playAddr": WEBAPP_VIDEO_URL },
+        } } } } }),
+    )
+}
+
 pub fn photo_page() -> String {
     script(
         "__UNIVERSAL_DATA_FOR_REHYDRATION__",

@@ -2,6 +2,7 @@ mod merge;
 mod patch;
 mod remux;
 
+use std::collections::HashMap;
 use worker::{
     Context, Env, Fetch, Headers, Request, RequestInit, RequestRedirect, Response, ResponseBody,
     Url, console_error, event, js_sys, wasm_bindgen_futures::JsFuture, web_sys, worker_sys,
@@ -35,25 +36,30 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> worker::Result<Response>
 }
 
 async fn video(req: &Request, allowed_hosts: &[String], ctx: &Context) -> Result<Response, Error> {
-    let url = req
+    let query: HashMap<String, String> = req
         .url()
         .map_err(|e| (400, e.to_string()))?
         .query_pairs()
-        .find(|(k, _)| k == "url")
-        .ok_or((400, "missing url".to_string()))?
-        .1
-        .into_owned();
-    let url = Url::parse(&url).map_err(|e| (400, e.to_string()))?;
+        .into_owned()
+        .collect();
+
+    let url = query.get("url").ok_or((400, "missing url".to_string()))?;
+    let url = Url::parse(url).map_err(|e| (400, e.to_string()))?;
     if !host_allowed(allowed_hosts, &url) {
         return Err((403, "host not allowed".into()));
     }
 
-    let (mut head, total) = fetch_bytes(allowed_hosts, &url, 0, HEAD_FETCH - 1).await?;
+    let chain_token = query.get("chain_token").map(String::as_str);
+
+    let (mut head, total) =
+        fetch_bytes(allowed_hosts, &url, chain_token, 0, HEAD_FETCH - 1).await?;
     let moov = loop {
         match patch::find_moov(&head) {
             Ok(patch::Moov::Found(r)) => break Ok(r),
             Ok(patch::Moov::NeedBytes(n)) if n as u64 <= total.min(MAX_HEAD) => {
-                head = fetch_bytes(allowed_hosts, &url, 0, n as u64 - 1).await?.0;
+                head = fetch_bytes(allowed_hosts, &url, chain_token, 0, n as u64 - 1)
+                    .await?
+                    .0;
             }
             Ok(patch::Moov::NeedBytes(_)) => {
                 break Err(format!("no moov box in the first {MAX_HEAD} bytes"));
@@ -89,7 +95,7 @@ async fn video(req: &Request, allowed_hosts: &[String], ctx: &Context) -> Result
     let head_part =
         (start < head_len).then(|| head[start as usize..head_len.min(end + 1) as usize].to_vec());
     let tail = if end >= head_len {
-        match ranged(allowed_hosts, &url, start.max(head_len), end)
+        match ranged(allowed_hosts, &url, chain_token, start.max(head_len), end)
             .await?
             .body()
         {
@@ -153,10 +159,11 @@ fn concat(
 async fn fetch_bytes(
     allowed_hosts: &[String],
     url: &Url,
+    chain_token: Option<&str>,
     start: u64,
     end: u64,
 ) -> Result<(Vec<u8>, u64), Error> {
-    let mut res = ranged(allowed_hosts, url, start, end).await?;
+    let mut res = ranged(allowed_hosts, url, chain_token, start, end).await?;
     let total = res
         .headers()
         .get("content-range")
@@ -172,6 +179,7 @@ async fn fetch_bytes(
 async fn ranged(
     allowed_hosts: &[String],
     url: &Url,
+    chain_token: Option<&str>,
     start: u64,
     end: u64,
 ) -> Result<Response, Error> {
@@ -181,11 +189,23 @@ async fn ranged(
         headers
             .set("range", &format!("bytes={start}-{end}"))
             .map_err(bad_gateway)?;
+
+        if let Some(token) = chain_token {
+            headers
+                .set("cookie", &format!("tt_chain_token={token}"))
+                .map_err(|e| (400, e.to_string()))?;
+            headers
+                .set("referer", "https://www.tiktok.com/")
+                .map_err(bad_gateway)?;
+        }
+
         let mut init = RequestInit::new();
         init.with_headers(headers)
             .with_redirect(RequestRedirect::Manual);
+
         let req = Request::new_with_init(url.as_str(), &init).map_err(bad_gateway)?;
         let res = Fetch::Request(req).send().await.map_err(bad_gateway)?;
+
         match res.status_code() {
             206 => return Ok(res),
             301 | 302 | 303 | 307 | 308 => {
@@ -204,6 +224,7 @@ async fn ranged(
             }
         }
     }
+
     Err(bad_gateway("too many redirects"))
 }
 

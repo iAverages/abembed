@@ -255,7 +255,7 @@ impl Source for InstagramSource {
                     ("Accept", "text/html,application/xhtml+xml"),
                     ("User-Agent", BROWSER_USER_AGENT),
                 ],
-                |html| self.embed_from_html(html),
+                |page| self.embed_from_html(&page.body),
             )
             .await;
         match anonymous {

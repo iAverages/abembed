@@ -360,7 +360,9 @@ impl Source for FacebookSource {
 
         let url = self.anonymous_url(providers).await;
         let anonymous = providers
-            .fetch(&url, &DESKTOP_HEADERS, |html| self.embed_from_html(html))
+            .fetch(&url, &DESKTOP_HEADERS, |page| {
+                self.embed_from_html(&page.body)
+            })
             .await;
         let embed = match anonymous {
             Ok(embed) => embed,

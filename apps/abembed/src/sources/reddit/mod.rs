@@ -288,7 +288,7 @@ impl RedditSource {
     async fn fetch_page(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
         let url = format!("https://embed.reddit.com{}", self.path());
         providers
-            .fetch(&url, &HTML_HEADERS, |html| self.embed_from_html(html))
+            .fetch(&url, &HTML_HEADERS, |page| self.embed_from_html(&page.body))
             .await
     }
 
@@ -299,7 +299,7 @@ impl RedditSource {
             if let Some(id) = dash_id(&media.url).map(str::to_string) {
                 let playlist = format!("https://v.redd.it/{id}/DASHPlaylist.mpd");
                 let video = providers
-                    .fetch(&playlist, &HTML_HEADERS, |xml| dash_video(xml, &id))
+                    .fetch(&playlist, &HTML_HEADERS, |xml| dash_video(&xml.body, &id))
                     .await?;
                 *media = Media {
                     alt: media.alt.take(),
@@ -352,7 +352,9 @@ impl RedditSource {
             [("url", self.post().source_url())],
         )
         .unwrap();
-        let result = providers.fetch(url.as_str(), &OEMBED_HEADERS, oembed).await;
+        let result = providers
+            .fetch(url.as_str(), &OEMBED_HEADERS, |json| oembed(&json.body))
+            .await;
         result.unwrap_or_else(|HttpError(_, message)| {
             self.warn_fallback("oembed", &message);
             (None, None)
@@ -362,7 +364,7 @@ impl RedditSource {
     async fn feed_body(&self, providers: &Providers) -> Option<String> {
         let url = format!("{}.rss?limit=1", self.post().source_url());
         let result = providers
-            .fetch(&url, &HTML_HEADERS, |feed| feed_body(feed, &self.id))
+            .fetch(&url, &HTML_HEADERS, |feed| feed_body(&feed.body, &self.id))
             .await;
         result.unwrap_or_else(|HttpError(_, message)| {
             self.warn_fallback("feed", &message);

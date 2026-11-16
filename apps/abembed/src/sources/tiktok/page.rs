@@ -52,6 +52,10 @@ impl TikTokSource {
                     .find_map(cdn_url)?;
                 Some((url, None))
             })
+            .or_else(|| {
+                let url = urls(&video["playAddr"]).into_iter().find_map(webapp_url)?;
+                Some((url, None))
+            })
             .ok_or_else(|| bad_gateway("TikTok page did not include a direct video URL"))?;
         let embed = self.embed_from_item(&item, vec![new_media(MediaKind::Video, url, video)]);
 
@@ -300,6 +304,35 @@ pub(super) fn proxied_video_url(url: &str) -> String {
         .to_string()
 }
 
+// the only play url of videos without bitrates, bound to the cookie their page set
+pub(super) fn webapp_url(url: &str) -> Option<String> {
+    crate::sources::cdn_url(
+        url,
+        &["v16-webapp-prime.tiktok.com", "v19-webapp-prime.tiktok.com"],
+    )
+}
+
+// the proxy sends the cookie along
+pub(super) fn proxied_webapp_url(url: &str, set_cookies: &[String]) -> Result<String, HttpError> {
+    let chain_token = set_cookies
+        .iter()
+        .find_map(|set_cookie| {
+            set_cookie
+                .split(';')
+                .next()?
+                .trim()
+                .strip_prefix("tt_chain_token=")
+        })
+        .ok_or_else(|| bad_gateway("TikTok page did not set a chain token"))?;
+
+    Ok(Url::parse_with_params(
+        VIDEO_PROXY_URL,
+        [("url", url), ("chain_token", chain_token)],
+    )
+    .unwrap()
+    .to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::*;
@@ -359,6 +392,35 @@ mod tests {
 
         assert_eq!(query["file_id"], "37a4");
         assert_eq!(audio, None);
+    }
+
+    #[test]
+    fn falls_back_to_the_webapp_url_without_bitrates() {
+        let (embed, _) = source("video", VIDEO_ID)
+            .video_from_page(&video_page_without_bitrates())
+            .unwrap();
+
+        assert_eq!(embed.media[0].url, WEBAPP_VIDEO_URL);
+    }
+
+    #[test]
+    fn proxies_webapp_urls_with_the_chain_token_their_page_set() {
+        let set_cookies = [
+            "ttwid=1%7Cabc; Path=/; Domain=tiktok.com".to_string(),
+            "tt_chain_token=8cVVa25VKBeNWC1albfP4A==; Path=/; Domain=tiktok.com".to_string(),
+        ];
+        let proxied = Url::parse(&proxied_webapp_url(WEBAPP_VIDEO_URL, &set_cookies).unwrap());
+        let query: BTreeMap<_, _> = proxied.unwrap().query_pairs().into_owned().collect();
+
+        assert_eq!(
+            (query["url"].as_str(), query["chain_token"].as_str()),
+            (WEBAPP_VIDEO_URL, "8cVVa25VKBeNWC1albfP4A==")
+        );
+    }
+
+    #[test]
+    fn rejects_webapp_urls_without_a_chain_token() {
+        assert!(proxied_webapp_url(WEBAPP_VIDEO_URL, &[]).is_err());
     }
 
     #[test]

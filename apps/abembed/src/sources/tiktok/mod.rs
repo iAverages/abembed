@@ -15,7 +15,7 @@ use axum::{
     routing::get,
     Router,
 };
-use page::{cdn_url, proxied_video_url};
+use page::{cdn_url, proxied_video_url, proxied_webapp_url, webapp_url};
 use serde_json::json;
 use worker::{Env, Url};
 
@@ -232,12 +232,20 @@ impl TikTokSource {
     }
 
     async fn resolve_video_page(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
-        let (mut embed, audio) = providers
-            .fetch(&self.source_url(), &HTML_HEADERS, |html| {
-                self.video_from_page(html)
+        let (mut embed, audio, webapp) = providers
+            .fetch(&self.source_url(), &HTML_HEADERS, |page| {
+                let (embed, audio) = self.video_from_page(&page.body)?;
+                let webapp = webapp_url(&embed.media[0].url)
+                    .map(|url| proxied_webapp_url(&url, &page.set_cookies))
+                    .transpose()?;
+                Ok((embed, audio, webapp))
             })
             .await?;
         let video = &mut embed.media[0];
+        if let Some(url) = webapp {
+            video.url = url;
+            return Ok(embed);
+        }
         let video_url = resolve_play_url(providers, &video.url).await?;
         video.url = match audio {
             Some(audio) => {
@@ -312,7 +320,9 @@ impl Source for TikTokSource {
                 self.username, self.id
             );
             providers
-                .fetch(&page_url, &HTML_HEADERS, |html| self.photo_from_page(html))
+                .fetch(&page_url, &HTML_HEADERS, |page| {
+                    self.photo_from_page(&page.body)
+                })
                 .await
         } else {
             self.resolve_video_page(providers).await
@@ -329,11 +339,11 @@ impl Source for TikTokSource {
                     "fallback": "embed",
                 }));
                 providers
-                    .fetch(&self.embed_page_url(), &HTML_HEADERS, |html| {
+                    .fetch(&self.embed_page_url(), &HTML_HEADERS, |page| {
                         if photo {
-                            self.photo_from_embed(html)
+                            self.photo_from_embed(&page.body)
                         } else {
-                            self.video_from_embed(html)
+                            self.video_from_embed(&page.body)
                         }
                     })
                     .await

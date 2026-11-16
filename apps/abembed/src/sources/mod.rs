@@ -558,7 +558,7 @@ impl Providers {
         &self,
         url: &str,
         headers: &[(&str, &str)],
-        parse: impl Fn(&str) -> Result<T, HttpError>,
+        parse: impl Fn(&ProviderResponse) -> Result<T, HttpError>,
     ) -> Result<T, HttpError> {
         let names = self.providers.iter().map(|(name, _)| name.as_str());
         for region in names.cycle().take(self.providers.len() * 2) {
@@ -567,7 +567,7 @@ impl Providers {
                 .await
                 .and_then(|response| {
                     let parsed = match (200..300).contains(&response.status) {
-                        true => parse(&response.body),
+                        true => parse(&response),
                         false => Err(bad_gateway(format!("{url} returned {}", response.status))),
                     };
                     parsed.map_err(|HttpError(status, message)| match self.debug {
