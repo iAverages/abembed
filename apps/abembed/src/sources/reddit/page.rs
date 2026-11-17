@@ -125,7 +125,8 @@ fn body_content(body: &ElementRef) -> (Option<String>, Vec<Media>) {
         blocks.extend(caption.map(|caption| format!("-# {caption}")));
     }
 
-    blocks.retain(|block| !block.is_empty());
+    let player_link = Regex::new(r"^https://reddit\.com/link/\w+/video/\w+/player$").unwrap();
+    blocks.retain(|block| !block.is_empty() && !player_link.is_match(block));
 
     while blocks.last().is_some_and(|block| block == INLINE_MEDIA) {
         blocks.pop();
@@ -170,7 +171,12 @@ fn player_media(player: &ElementRef) -> Option<Media> {
         return preview_image(src).or_else(|| external_gif(src));
     }
 
-    let packaged: Value = serde_json::from_str(player.attr("packaged-media-json")?).ok()?;
+    let Some(packaged) = player.attr("packaged-media-json") else {
+        let playlist = player.attr("src")?.strip_prefix(VIDEO_HOST)?;
+        let id = playlist.split('?').next()?.rsplit('/').nth(1)?;
+        return linked_media(&format!("{VIDEO_HOST}{id}"));
+    };
+    let packaged: Value = serde_json::from_str(packaged).ok()?;
     let source = packaged["playbackMp4s"]["permutations"]
         .as_array()?
         .iter()
@@ -569,6 +575,15 @@ mod tests {
     }
 
     #[test]
+    fn leaves_body_videos_for_their_playlist() {
+        let embed = source().embed_from_html(&body_video_post_page()).unwrap();
+
+        assert_eq!(urls(&embed), ["https://v.redd.it/ipnb5rya802i1"]);
+        assert_eq!(embed.media[0].kind, MediaKind::Video);
+        assert_eq!(embed.description, None);
+    }
+
+    #[test]
     fn merges_the_best_dash_video_and_audio() {
         let video = dash_video(DASH_PLAYLIST, "1wnr3rk6bmyh1").unwrap();
 
@@ -607,7 +622,13 @@ mod tests {
     #[test]
     fn feeds_without_a_post_body_have_none() {
         let no_body = FEED.replace("&lt;div class=&quot;md&quot;&gt;", "&lt;div&gt;");
+        let only_video = FEED.replace(
+            "For me I find that it&amp;#39;s a &amp;quot;press Q to panic&amp;quot; button. &lt;/p&gt; &lt;p&gt;Here in this clip you can see why. ",
+            "&lt;a href=&quot;https://reddit.com/link/1xm08ih/video/ipnb5rya802i1/player&quot;&gt;https://reddit.com/link/1xm08ih/video/ipnb5rya802i1/player&lt;/a&gt;",
+        );
 
+        assert_ne!(only_video, FEED);
+        assert_eq!(feed_body(&only_video, POST_ID).unwrap(), None);
         assert_eq!(feed_body(&no_body, POST_ID).unwrap(), None);
         assert_eq!(feed_body(FEED, "1xm08ii").unwrap(), None);
         assert!(feed_body("not a feed", POST_ID).is_err());

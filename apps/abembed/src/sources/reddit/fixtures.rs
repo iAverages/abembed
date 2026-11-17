@@ -174,6 +174,19 @@ pub fn inline_media_post_page() -> String {
     )
 }
 
+pub fn body_video_post_page() -> String {
+    post_page(
+        "multi_media",
+        "https://www.reddit.com/r/osugame/comments/1xm08ih/mrekk_the_koxx/",
+        &[
+            POST_HEADER,
+            r#"<shreddit-embed-title>mrekk | The Koxx</shreddit-embed-title> <div id="t3_1xm08ih-post-rtjson-content" class="md" dir="auto"> <figure class="rte-media"> <div class="rte-video-placeholder"> <div id="ipnb5rya802i1-aspect-ratio" data-aspect-ratio-container> <shreddit-player src="https://v.redd.it/link/1xm08ih/asset/ipnb5rya802i1/HLSPlaylist.m3u8?f=sd%2CsubsAll%2ChlsSpecOrder&amp;v=1" autoplay media-placement="rich_text_video" poster="https://preview.redd.it/ipnb5rya802i1.jpg?vthumb=1&amp;s=82cb"> <source src="https://v.redd.it/link/1xm08ih/asset/ipnb5rya802i1/HLSPlaylist.m3u8" type="application/vnd.apple.mpegURL"> <img alt="media poster" loading="lazy" src="https://preview.redd.it/ipnb5rya802i1.jpg?vthumb=1&amp;s=82cb" slot="poster"> </shreddit-player> </div> </div> </figure> </div>"#,
+            &footer(531, "View 14 comments"),
+        ]
+        .concat(),
+    )
+}
+
 pub fn unsupported_post_page() -> String {
     post_page(
         "link",
