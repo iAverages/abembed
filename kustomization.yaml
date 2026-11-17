@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- base
+images:
+- name: ghcr.io/iaverages/spqtify.com/api
+  newTag: production-c58e3ca5b3262d4aa457be1e540eb61311967c55
+- name: ghcr.io/iaverages/spqtify.com/embed-image-service
+  newTag: production-c58e3ca5b3262d4aa457be1e540eb61311967c55
+- name: ghcr.io/iaverages/abembed/gif-service
+  newTag: production-730585f6fb42c7e983d235bc95e2763b2ba8536b
