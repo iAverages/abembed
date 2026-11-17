@@ -223,7 +223,7 @@
         src = embedImageServiceSrc;
         pnpm = pkgs.pnpm_12;
         fetcherVersion = 5;
-        hash = "sha256-usKRF6tEilbp6YIqZb7IQ0qs2sf72u8elQpBycKmC4I=";
+        hash = "sha256-hMpA62dOjWiIvzjwRwuHUORyj82J5KQSwyOZEfKhjiA=";
       };
 
       embedImageServicePackages = import ./apps/embed-image-service/nix/packages.nix {
