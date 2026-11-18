@@ -322,6 +322,15 @@ pub(super) fn oembed(json: &str) -> Result<(Option<String>, Option<String>), Htt
     Ok((field("title"), field("author_name")))
 }
 
+pub(super) fn post_body(fragment: &str, id: &str) -> Option<String> {
+    let fragment = Html::parse_fragment(fragment);
+    let body = select(
+        &fragment.root_element(),
+        &format!("#t3_{id}-post-rtjson-content"),
+    )?;
+    body_content(&body).0
+}
+
 fn comment_count(html: &str) -> Option<u64> {
     let count = Regex::new(r"View (\d+) comments?").unwrap();
     match count.captures(html) {
@@ -478,6 +487,22 @@ mod tests {
         assert_eq!(urls(&embed), ["https://i.redd.it/dm85kmia6myh1.jpeg"]);
         assert_eq!(embed.title, None);
         assert!(embed.author.is_none());
+    }
+
+    #[test]
+    fn reads_the_post_body_from_the_detail_fragment() {
+        assert_eq!(
+            post_body(&post_detail_fragment(), POST_ID).as_deref(),
+            Some("She said it was similar to aloe??")
+        );
+    }
+
+    #[test]
+    fn detail_fragments_without_a_post_body_have_none() {
+        let no_body = post_detail_fragment().replace("-post-rtjson-content", "-content");
+
+        assert_eq!(post_body(&no_body, POST_ID), None);
+        assert_eq!(post_body(&post_detail_fragment(), "1xm08ii"), None);
     }
 
     #[test]

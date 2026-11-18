@@ -4,7 +4,7 @@ mod page;
 
 use super::{
     bad_request, browser_redirect, get_cached,
-    html::{icon, Site},
+    html::{icon, Site, INLINE_MEDIA},
     post_cache, put_cached, redirects_browser, share_link, sized, warn, ComponentQuery, EmbedPost,
     HttpError, Media, Providers, Source,
 };
@@ -15,7 +15,7 @@ use axum::{
     routing::get,
     Router,
 };
-use page::{author, dash_id, dash_video, oembed};
+use page::{author, dash_id, dash_video, oembed, post_body};
 use serde::Deserialize;
 use serde_json::json;
 use worker::{Env, Url};
@@ -306,6 +306,14 @@ impl RedditSource {
     async fn fetch_entry(&self, providers: &Providers) -> Result<EmbedPost, HttpError> {
         let mut embed = self.fetch_page(providers).await?;
 
+        if self.comment.is_none() && embed.description.is_none() {
+            let body = self.fetch_body(providers).await;
+            embed.description = match embed.media.len() {
+                1 => body.map(|body| format!("{INLINE_MEDIA}\n\n{body}")),
+                _ => body,
+            };
+        }
+
         for media in &mut embed.media {
             if let Some(id) = dash_id(&media.url).map(str::to_string) {
                 let playlist = format!("https://v.redd.it/{id}/DASHPlaylist.mpd");
@@ -321,7 +329,7 @@ impl RedditSource {
 
         // comment embeds have no title, the post they reply to is shown instead
         if self.comment.is_none() && embed.title.is_none() {
-            let (title, author_name) = self.oembed(providers).await;
+            let (title, author_name) = self.fetch_oembed(providers).await;
             embed.title = title.or_else(|| self.slug_title());
             embed.author = embed.author.or(author_name.map(author));
         }
@@ -353,18 +361,38 @@ impl RedditSource {
         }
     }
 
-    async fn oembed(&self, providers: &Providers) -> (Option<String>, Option<String>) {
+    async fn fetch_oembed(&self, providers: &Providers) -> (Option<String>, Option<String>) {
         let url = Url::parse_with_params(
             "https://www.reddit.com/oembed",
             [("url", self.post().source_url())],
         )
         .unwrap();
+
         let result = providers
             .fetch(url.as_str(), &OEMBED_HEADERS, |json| oembed(&json.body))
             .await;
+
         result.unwrap_or_else(|HttpError(_, message)| {
             self.warn_fallback("oembed", &message);
             (None, None)
+        })
+    }
+
+    async fn fetch_body(&self, providers: &Providers) -> Option<String> {
+        let url = format!(
+            "https://embed.reddit.com/svc/shreddit/partial-post/{}/t3_{}",
+            self.subreddit, self.id
+        );
+
+        let result = providers
+            .fetch(&url, &HTML_HEADERS, |fragment| {
+                Ok(post_body(&fragment.body, &self.id))
+            })
+            .await;
+
+        result.unwrap_or_else(|HttpError(_, message)| {
+            self.warn_fallback("body", &message);
+            None
         })
     }
 

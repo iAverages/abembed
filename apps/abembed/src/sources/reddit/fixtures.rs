@@ -194,6 +194,12 @@ pub fn unsupported_post_page() -> String {
     )
 }
 
+pub fn post_detail_fragment() -> String {
+    format!(
+        r#"<shreddit-post id="t3_{POST_ID}" post-type="image" view-context="CommentsPage"> <div slot="post-media-container"> <img id="post-image" src="https://i.redd.it/c8jyutimbq1i1.jpeg"> </div> <shreddit-post-text-body slot="text-body" post-id="t3_{POST_ID}"> <div class="text-neutral-content" slot="text-body"> <div id="t3_{POST_ID}-post-rtjson-content" class="md text-14-scalable" property="schema:articleBody" dir="auto"> <p> She said it was similar to aloe?? </p> </div> <div id="t3_{POST_ID}-overflow-cover" class="read-more-overflow-cover"></div> </div> </shreddit-post-text-body> </shreddit-post>"#
+    )
+}
+
 fn comment_body(inner: &str) -> String {
     format!(
         r#"<div class="md text-14"><div id="t1_{COMMENT_ID}-post-rtjson-content" class="md" dir="auto">{inner}</div></div>"#
