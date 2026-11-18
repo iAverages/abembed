@@ -125,8 +125,7 @@ fn body_content(body: &ElementRef) -> (Option<String>, Vec<Media>) {
         blocks.extend(caption.map(|caption| format!("-# {caption}")));
     }
 
-    let player_link = Regex::new(r"^https://reddit\.com/link/\w+/video/\w+/player$").unwrap();
-    blocks.retain(|block| !block.is_empty() && !player_link.is_match(block));
+    blocks.retain(|block| !block.is_empty());
 
     while blocks.last().is_some_and(|block| block == INLINE_MEDIA) {
         blocks.pop();
@@ -321,27 +320,6 @@ pub(super) fn oembed(json: &str) -> Result<(Option<String>, Option<String>), Htt
             .map(str::to_string)
     };
     Ok((field("title"), field("author_name")))
-}
-
-pub(super) fn feed_body(feed: &str, id: &str) -> Result<Option<String>, HttpError> {
-    let document =
-        roxmltree::Document::parse(feed).map_err(|_| bad_gateway("Reddit feed was not valid"))?;
-
-    let child = |entry: &roxmltree::Node, name: &str| {
-        let child = entry.children().find(|child| child.has_tag_name(name))?;
-        child.text().map(str::to_string)
-    };
-
-    let content = document
-        .descendants()
-        .filter(|node| node.has_tag_name("entry"))
-        .find(|entry| child(entry, "id") == Some(format!("t3_{id}")))
-        .and_then(|entry| child(&entry, "content"));
-
-    Ok(content.and_then(|content| {
-        let content = Html::parse_fragment(&content);
-        select(&content.root_element(), "div.md").and_then(|body| body_content(&body).0)
-    }))
 }
 
 fn comment_count(html: &str) -> Option<u64> {
@@ -609,29 +587,6 @@ mod tests {
         assert!(linked_media("https://www.reddit.com/gallery/1xm08ih").is_none());
         assert!(preview_image("https://evil.example/x-v0-v1eq2vzfk1zh1.jpeg").is_none());
         assert_eq!(dash_id("https://v.redd.it/../evil"), None);
-    }
-
-    #[test]
-    fn reads_the_post_body_from_the_feed() {
-        assert_eq!(
-            feed_body(FEED, POST_ID).unwrap().as_deref(),
-            Some("For me I find that it's a \"press Q to panic\" button.\n\nHere in this clip you can see why.")
-        );
-    }
-
-    #[test]
-    fn feeds_without_a_post_body_have_none() {
-        let no_body = FEED.replace("&lt;div class=&quot;md&quot;&gt;", "&lt;div&gt;");
-        let only_video = FEED.replace(
-            "For me I find that it&amp;#39;s a &amp;quot;press Q to panic&amp;quot; button. &lt;/p&gt; &lt;p&gt;Here in this clip you can see why. ",
-            "&lt;a href=&quot;https://reddit.com/link/1xm08ih/video/ipnb5rya802i1/player&quot;&gt;https://reddit.com/link/1xm08ih/video/ipnb5rya802i1/player&lt;/a&gt;",
-        );
-
-        assert_ne!(only_video, FEED);
-        assert_eq!(feed_body(&only_video, POST_ID).unwrap(), None);
-        assert_eq!(feed_body(&no_body, POST_ID).unwrap(), None);
-        assert_eq!(feed_body(FEED, "1xm08ii").unwrap(), None);
-        assert!(feed_body("not a feed", POST_ID).is_err());
     }
 
     #[test]
