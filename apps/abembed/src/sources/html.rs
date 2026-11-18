@@ -223,7 +223,12 @@ fn post_components(
     };
 
     let mut components = Vec::new();
-    if let Some(translation) = &post.translation {
+
+    let translation = post.translation.as_ref().filter(|translation| {
+        post.description.as_deref().map(str::trim) != Some(translation.text.trim())
+    });
+
+    if let Some(translation) = translation {
         components.push(json!({
             "type": 10,
             "content": format!(
