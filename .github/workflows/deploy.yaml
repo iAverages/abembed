@@ -43,7 +43,7 @@ jobs:
       embed-image-service: ${{ inputs.embed-image-service || steps.filter.outputs.embed-image-service }}
       gif-service: ${{ inputs.gif-service || steps.filter.outputs.gif-service }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # a failed or cancelled run deployed nothing, so its changes count towards the next one
       - name: Find the last successful deploy
         id: last
