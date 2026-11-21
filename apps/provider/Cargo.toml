@@ -9,4 +9,4 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-worker = "0.8"
+worker = "0.9"
