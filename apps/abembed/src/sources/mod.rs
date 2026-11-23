@@ -236,6 +236,8 @@ pub fn share_link<S: Source>(
     match response.extensions_mut().get_mut::<Event>() {
         Some(Event(EventName::EmbedRequested, props)) => props["link_kind"] = "share".into(),
         Some(_) => {}
+        // tiktok shortcode links match on bot spam, dont add embed failure reporting
+        None if status == StatusCode::BAD_REQUEST => {}
         None => {
             let mut props = request_props::<S>(endpoint, headers);
 
