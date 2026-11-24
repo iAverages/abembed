@@ -3,9 +3,13 @@ kind: Kustomization
 resources:
 - base
 images:
+- name: ghcr.io/iaverages/abembed/api
+  newTag: production-c7cae4bf0bdd5fd85f1c8928c9e45ea8e539b797
+- name: ghcr.io/iaverages/abembed/embed-image-service
+  newTag: production-c7cae4bf0bdd5fd85f1c8928c9e45ea8e539b797
+- name: ghcr.io/iaverages/abembed/gif-service
+  newTag: production-c7cae4bf0bdd5fd85f1c8928c9e45ea8e539b797
 - name: ghcr.io/iaverages/spqtify.com/api
   newTag: production-c58e3ca5b3262d4aa457be1e540eb61311967c55
 - name: ghcr.io/iaverages/spqtify.com/embed-image-service
   newTag: production-c58e3ca5b3262d4aa457be1e540eb61311967c55
-- name: ghcr.io/iaverages/abembed/gif-service
-  newTag: production-730585f6fb42c7e983d235bc95e2763b2ba8536b

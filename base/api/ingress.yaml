@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  labels:
+    app.kubernetes.io/name: api
+  name: api
+  namespace: abembed
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: open.spqtify.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: api
+            port:
+              number: 3000
+        path: /
+        pathType: Prefix

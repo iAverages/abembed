@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: embed-image-service
+  name: embed-image-service
+  namespace: abembed
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: api
+    ports:
+    - port: 3001
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: embed-image-service
+  policyTypes:
+  - Ingress

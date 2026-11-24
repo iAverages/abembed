@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: api
+  name: api
+  namespace: abembed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+    spec:
+      containers:
+      - env:
+        - name: APP_URL
+          value: https://open.spqtify.com
+        - name: MACHINA_VIDEO_GENERATION_DIR
+          value: /tmp/machina
+        - name: SPQTIFY_DEFAULT_BASE_COLOR
+          value: '#000'
+        - name: EMBED_IMAGE_SERVICE_URL
+          value: http://embed-image-service:3001
+        - name: POSTHOG_HOST
+          value: https://eu.i.posthog.com
+        envFrom:
+        - secretRef:
+            name: abembed-api-secrets
+        image: ghcr.io/iaverages/abembed/api
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 2
+        name: api
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: '4'
+            memory: 2Gi
+          requests:
+            cpu: '1'
+            memory: 512Mi
