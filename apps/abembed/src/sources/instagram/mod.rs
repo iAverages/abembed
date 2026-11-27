@@ -3,9 +3,10 @@ mod fixtures;
 mod page;
 
 use super::{
-    bad_request, gallery_html,
+    bad_request, browser_redirect, gallery_html, get_cached,
     html::{escape_html, icon, meta_name, meta_property, Site},
-    ComponentQuery, EmbedPost, HttpError, ProviderResponse, Providers, Source,
+    post_cache, put_cached, redirects_browser, share_link, ComponentQuery, EmbedPost, HttpError,
+    ProviderResponse, Providers, Source,
 };
 use crate::accounts::{clears_cookie, with_account, AccountFields, Attempt};
 use axum::{
@@ -15,9 +16,12 @@ use axum::{
     routing::get,
     Router,
 };
-use worker::{Env, RequestRedirect};
+use worker::{Env, RequestRedirect, Url};
 
-const BROWSER_USER_AGENT: &str = "Mozilla/5.0";
+const HTML_HEADERS: [(&str, &str); 2] = [
+    ("Accept", "text/html,application/xhtml+xml"),
+    ("User-Agent", "Mozilla/5.0"),
+];
 pub const ACCOUNT_FIELDS: AccountFields = AccountFields {
     account_id_cookie: "ds_user_id",
     required_cookies: &["sessionid"],
@@ -44,6 +48,13 @@ pub const ACCOUNT_FIELDS: AccountFields = AccountFields {
 pub fn get_router() -> Router<Env> {
     Router::new()
         .route("/instagram", get(crate::root))
+        .route("/instagram/share/{code}", get(share_media))
+        .route("/instagram/share/{kind}/{code}", get(share_kind_media))
+        .route("/api/instagram/share/{code}", get(share_post_api))
+        .route(
+            "/api/instagram/share/{code}/component",
+            get(share_component_api),
+        )
         .route("/instagram/{media_type}/{shortcode}", get(media))
         .route(
             "/instagram/{username}/{media_type}/{shortcode}",
@@ -127,6 +138,87 @@ async fn user_media(
     media(State(env), Path((media_type, shortcode)), headers).await
 }
 
+#[worker::send]
+async fn share_media(
+    State(env): State<Env>,
+    Path(code): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let source = match resolve_share_link(&env, &code).await {
+            Err(_) if redirects_browser(&env, &headers) => {
+                return Ok(browser_redirect::<InstagramSource>(&share_url(&code)?));
+            }
+            source => source?,
+        };
+        super::embed(&env, &source, &headers).await
+    };
+    share_link::<InstagramSource>("embed", &headers, result.await)
+}
+
+// `/share/p/{code}` and `/share/reel/{code}` go to the same post as `/share/{code}`
+#[worker::send]
+async fn share_kind_media(
+    State(env): State<Env>,
+    Path((_, code)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    share_media(State(env), Path(code), headers).await
+}
+
+#[worker::send]
+async fn share_post_api(
+    State(env): State<Env>,
+    Path(code): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let source = resolve_share_link(&env, &code).await?;
+        super::api(&env, &source, &headers).await
+    };
+    share_link::<InstagramSource>("api", &headers, result.await)
+}
+
+#[worker::send]
+async fn share_component_api(
+    State(env): State<Env>,
+    Path(code): Path<String>,
+    Query(query): Query<ComponentQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let source = resolve_share_link(&env, &code).await?;
+        super::component(&env, &source, &headers, &query).await
+    };
+    share_link::<InstagramSource>("component", &headers, result.await)
+}
+
+fn share_url(code: &str) -> Result<String, HttpError> {
+    if !is_shortcode(code) {
+        return Err(bad_request("Unsupported Instagram share link"));
+    }
+    Ok(format!("https://www.instagram.com/share/{code}/"))
+}
+
+async fn resolve_share_link(env: &Env, code: &str) -> Result<InstagramSource, HttpError> {
+    let share_url = share_url(code)?;
+    let cache = post_cache(env)?;
+    let key = format!("embed-alias:v1:instagram:{code}");
+
+    match get_cached::<String>(&cache, &key).await {
+        Some(url) => InstagramSource::from_url(&url),
+        None => {
+            let source = Providers::for_platform(env, InstagramSource::PLATFORM)?
+                .fetch_redirect(&share_url, &HTML_HEADERS, |location| {
+                    InstagramSource::from_url(location).ok()
+                })
+                .await?;
+            put_cached(&cache, &key, &source.redirect_url()).await;
+            Ok(source)
+        }
+    }
+}
+
 fn classify_account_page(
     source: &InstagramSource,
     response: &ProviderResponse,
@@ -199,6 +291,30 @@ impl InstagramSource {
             shortcode: shortcode.to_string(),
         })
     }
+
+    fn from_url(url: &str) -> Result<Self, HttpError> {
+        let unsupported = || bad_request("Unsupported Instagram post link");
+
+        let url = Url::parse(url).map_err(|_| unsupported())?;
+        if url.scheme() != "https"
+            || !matches!(url.host_str(), Some("instagram.com" | "www.instagram.com"))
+        {
+            return Err(unsupported());
+        }
+
+        let segments: Vec<&str> = url
+            .path_segments()
+            .ok_or_else(unsupported)?
+            .filter(|segment| !segment.is_empty())
+            .collect();
+
+        match segments[..] {
+            [media_type, shortcode] | [_, media_type, shortcode] => {
+                Self::new(media_type, shortcode)
+            }
+            _ => Err(unsupported()),
+        }
+    }
 }
 
 impl Source for InstagramSource {
@@ -248,14 +364,9 @@ impl Source for InstagramSource {
 
     async fn fetch(&self, env: &Env, providers: &Providers) -> Result<EmbedPost, HttpError> {
         let anonymous = providers
-            .fetch(
-                &self.source_url(),
-                &[
-                    ("Accept", "text/html,application/xhtml+xml"),
-                    ("User-Agent", BROWSER_USER_AGENT),
-                ],
-                |page| self.embed_from_html(&page.body),
-            )
+            .fetch(&self.source_url(), &HTML_HEADERS, |page| {
+                self.embed_from_html(&page.body)
+            })
             .await;
         match anonymous {
             Ok(post) if !post.media.is_empty() => Ok(post),

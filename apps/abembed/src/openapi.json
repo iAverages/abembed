@@ -185,6 +185,44 @@
                 }
             }
         },
+        "/instagram/share/{code}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Embed for an Instagram share link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramShareCode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/instagram/share/{kind}/{code}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Embed for an Instagram share link with a media type",
+                "parameters": [
+                    {
+                        "name": "kind",
+                        "in": "path",
+                        "required": true,
+                        "description": "Ignored, the code identifies the post",
+                        "schema": { "type": "string" },
+                        "example": "reel"
+                    },
+                    { "$ref": "#/components/parameters/InstagramShareCode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/DiscordEmbed" },
+                    "302": { "$ref": "#/components/responses/Redirect" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
         "/instagram/{media_type}/{shortcode}/media/{index}": {
             "get": {
                 "tags": ["instagram"],
@@ -250,6 +288,55 @@
                 "parameters": [
                     { "$ref": "#/components/parameters/InstagramMediaType" },
                     { "$ref": "#/components/parameters/InstagramShortcode" },
+                    { "$ref": "#/components/parameters/MediaLimit" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Component" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "403": {
+                        "description": "The post is gated, e.g. age restricted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/instagram/share/{code}": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Instagram post json for a share link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramShareCode" }
+                ],
+                "responses": {
+                    "200": { "$ref": "#/components/responses/Post" },
+                    "400": { "$ref": "#/components/responses/JsonError" },
+                    "403": {
+                        "description": "The post is gated, e.g. age restricted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "502": { "$ref": "#/components/responses/JsonError" }
+                }
+            }
+        },
+        "/api/instagram/share/{code}/component": {
+            "get": {
+                "tags": ["instagram"],
+                "summary": "Instagram post component json for a share link",
+                "parameters": [
+                    { "$ref": "#/components/parameters/InstagramShareCode" },
                     { "$ref": "#/components/parameters/MediaLimit" }
                 ],
                 "responses": {
@@ -996,6 +1083,14 @@
                 "required": true,
                 "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
                 "example": "DAbCdEfGhIj"
+            },
+            "InstagramShareCode": {
+                "name": "code",
+                "in": "path",
+                "required": true,
+                "description": "Share link code",
+                "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+                "example": "_h8jcRhqR"
             },
             "TikTokShortcode": {
                 "name": "shortcode",
